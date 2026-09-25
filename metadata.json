@@ -1,0 +1,6 @@
+{
+  "name": "FlowCraft - Collaborative Flowchart Studio",
+  "description": "Professional collaborative flowchart editor with real-time team collaboration, cloud sync, version history, image/PDF/HTML export, and multi-theme customization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
