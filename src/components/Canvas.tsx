@@ -298,8 +298,15 @@ export const Canvas: React.FC<CanvasProps> = ({
   const handleFinishEditingText = () => {
     if (editingNodeId) {
       const node = nodes.find((n) => n.id === editingNodeId);
-      if (node && editingText.trim() !== '') {
-        onUpdateNode({ ...node, label: editingText.trim() });
+      if (node && editingText !== '') {
+        const lines = editingText.split('\n');
+        const minReqHeight = Math.round(lines.length * (node.fontSize * 1.35) + 26);
+        const updatedHeight = Math.max(node.height, minReqHeight);
+        onUpdateNode({
+          ...node,
+          label: editingText,
+          height: updatedHeight,
+        });
       }
       setEditingNodeId(null);
     }
@@ -572,19 +579,37 @@ export const Canvas: React.FC<CanvasProps> = ({
                     return null;
                   })}
 
-                  {/* Text Label */}
-                  <text
-                    x={node.width / 2}
-                    y={node.height / 2 + 5}
-                    textAnchor="middle"
-                    fill={node.textColor}
-                    fontSize={node.fontSize}
-                    fontWeight={node.fontWeight}
-                    fontFamily="Vazirmatn, sans-serif"
-                    className="pointer-events-none select-none"
-                  >
-                    {node.label}
-                  </text>
+                  {/* Multi-line Text Label */}
+                  {(() => {
+                    const rawText = node.label || '';
+                    const lines = rawText.split('\n');
+                    const lineHeight = node.fontSize * 1.35;
+                    const startY =
+                      node.height / 2 -
+                      ((lines.length - 1) * lineHeight) / 2 +
+                      node.fontSize * 0.35;
+
+                    return (
+                      <text
+                        fill={node.textColor}
+                        fontSize={node.fontSize}
+                        fontWeight={node.fontWeight}
+                        fontFamily="Vazirmatn, sans-serif"
+                        textAnchor="middle"
+                        className="pointer-events-none select-none"
+                      >
+                        {lines.map((line, idx) => (
+                          <tspan
+                            key={idx}
+                            x={node.width / 2}
+                            y={startY + idx * lineHeight}
+                          >
+                            {line || '\u00A0'}
+                          </tspan>
+                        ))}
+                      </text>
+                    );
+                  })()}
 
                   {/* 4 Connection Ports (Top, Right, Bottom, Left) */}
                   {ports.map((port) => {
@@ -801,14 +826,20 @@ export const Canvas: React.FC<CanvasProps> = ({
         (() => {
           const node = nodes.find((n) => n.id === editingNodeId);
           if (!node) return null;
+          const lineCount = (editingText || '').split('\n').length;
+          const calcHeight = Math.max(
+            node.height * zoom,
+            (lineCount * node.fontSize * 1.45 + 36) * zoom
+          );
+
           return (
             <div
-              className="absolute z-30"
+              className="absolute z-30 flex flex-col items-center"
               style={{
                 left: node.x * zoom + pan.x,
-                top: node.y * zoom + pan.y,
-                width: node.width * zoom,
-                height: node.height * zoom,
+                top: node.y * zoom + pan.y - (calcHeight - node.height * zoom) / 2,
+                width: Math.max(node.width * zoom, 160),
+                minHeight: calcHeight,
               }}
             >
               <textarea
@@ -817,23 +848,30 @@ export const Canvas: React.FC<CanvasProps> = ({
                 onChange={(e) => setEditingText(e.target.value)}
                 onBlur={handleFinishEditingText}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
                     handleFinishEditingText();
-                  }
-                  if (e.key === 'Escape') {
+                  } else if (e.key === 'Escape') {
                     setEditingNodeId(null);
                   }
                 }}
-                className="w-full h-full p-2 text-center resize-none outline-none border-2 border-blue-500 rounded-lg shadow-xl"
+                placeholder="متن شکل را بنویسید..."
+                className="w-full flex-1 p-2.5 text-center resize-none outline-none border-2 border-blue-500 rounded-t-lg shadow-2xl leading-relaxed"
                 style={{
                   backgroundColor: theme.ui.cardBg,
                   color: theme.ui.textPrimary,
-                  fontSize: `${node.fontSize * zoom}px`,
+                  fontSize: `${Math.max(12, node.fontSize * zoom)}px`,
                   fontWeight: node.fontWeight,
                   fontFamily: 'Vazirmatn, sans-serif',
+                  minHeight: `${Math.max(60, node.height * zoom)}px`,
                 }}
               />
+              <div
+                className="w-full text-[10px] text-center bg-blue-600 text-white rounded-b-lg px-2 py-0.5 shadow-md flex items-center justify-between font-mono select-none"
+              >
+                <span>Enter = خط بعدی</span>
+                <span>Ctrl+Enter = ثبت</span>
+              </div>
             </div>
           );
         })()

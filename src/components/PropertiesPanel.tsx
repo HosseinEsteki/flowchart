@@ -72,14 +72,28 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       {/* CASE 1: NODE SELECTED */}
       {selectedNode && (
         <div className="space-y-4 text-right">
-          {/* Label Text */}
+          {/* Label Text with Multi-line Support */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold">{t.text}</label>
-            <input
-              type="text"
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold">{t.text}</label>
+              <span className="text-[10px] opacity-60">چندخطی (Enter)</span>
+            </div>
+            <textarea
+              rows={3}
               value={selectedNode.label}
-              onChange={(e) => onUpdateNode({ ...selectedNode, label: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border outline-none"
+              onChange={(e) => {
+                const newLabel = e.target.value;
+                const lines = newLabel.split('\n');
+                const minReqHeight = Math.round(lines.length * (selectedNode.fontSize * 1.35) + 26);
+                const updatedHeight = Math.max(selectedNode.height, minReqHeight);
+                onUpdateNode({
+                  ...selectedNode,
+                  label: newLabel,
+                  height: updatedHeight,
+                });
+              }}
+              placeholder="متن شکل را بنویسید (Enter برای خط جدید)..."
+              className="w-full px-2.5 py-1.5 text-xs rounded-lg border outline-none resize-y leading-relaxed font-medium transition-colors focus:border-blue-500"
               style={{
                 backgroundColor: theme.ui.surface,
                 borderColor: theme.ui.border,

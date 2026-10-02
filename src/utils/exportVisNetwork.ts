@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { FlowchartProject, FlowchartNode, FlowchartEdge } from '../types/flowchart';
-import visNetworkRaw from '../../public/assets/vis-network.min.js?raw';
+import visNetworkRaw from '../assets/vis-network.min.js?raw';
 
 /**
  * Generate full offline style.css bundle
