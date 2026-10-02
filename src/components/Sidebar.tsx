@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shapes,
   LayoutTemplate,
@@ -21,8 +21,9 @@ import {
   Copy,
   Clock,
   User,
+  Printer,
 } from 'lucide-react';
-import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage } from '../types/flowchart';
+import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage, FlowchartPage } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
 import { TEMPLATES } from '../constants/templates';
@@ -41,6 +42,15 @@ interface SidebarProps {
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
   roomCode: string;
+  activeTab?: 'shapes' | 'templates' | 'notes' | 'history' | 'team';
+  onTabChange?: (tab: 'shapes' | 'templates' | 'notes' | 'history' | 'team') => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: (collapsed: boolean) => void;
+  activePage?: FlowchartPage;
+  allPages?: FlowchartPage[];
+  onSelectPage?: (pageId: string) => void;
+  onUpdatePageDescription?: (pageId: string, description: string) => void;
+  onOpenPrint?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -57,12 +67,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
   chatMessages,
   onSendMessage,
   roomCode,
+  activeTab: activeTabProp,
+  onTabChange,
+  isCollapsed: isCollapsedProp,
+  onToggleCollapse,
+  activePage,
+  allPages,
+  onSelectPage,
+  onUpdatePageDescription,
+  onOpenPrint,
 }) => {
-  const [activeTab, setActiveTab] = useState<'shapes' | 'templates' | 'history' | 'team'>('shapes');
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [internalTab, setInternalTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'team'>('shapes');
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [newVersionName, setNewVersionName] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const activeTab = activeTabProp !== undefined ? activeTabProp : internalTab;
+  const isCollapsed = isCollapsedProp !== undefined ? isCollapsedProp : internalCollapsed;
+
+  const [notesDraft, setNotesDraft] = useState(activePage?.description || '');
+
+  useEffect(() => {
+    setNotesDraft(activePage?.description || '');
+  }, [activePage?.id, activePage?.description]);
+
+  const handleNotesChange = (text: string) => {
+    setNotesDraft(text);
+    if (activePage && onUpdatePageDescription) {
+      onUpdatePageDescription(activePage.id, text);
+    }
+  };
+
+  const appendSnippet = (snippet: string) => {
+    const updated = notesDraft ? `${notesDraft}\n\n${snippet}` : snippet;
+    handleNotesChange(updated);
+  };
+
+  const handleSelectTab = (tab: 'shapes' | 'templates' | 'notes' | 'history' | 'team') => {
+    if (onTabChange) onTabChange(tab);
+    setInternalTab(tab);
+    if (isCollapsed) {
+      if (onToggleCollapse) onToggleCollapse(false);
+      setInternalCollapsed(false);
+    }
+  };
+
+  const handleToggleCollapse = () => {
+    const next = !isCollapsed;
+    if (onToggleCollapse) onToggleCollapse(next);
+    setInternalCollapsed(next);
+  };
 
   const shapeItems: Array<{
     type: FlowchartNodeType;
@@ -170,10 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div className="flex flex-col gap-2 items-center w-full">
           <button
-            onClick={() => {
-              setActiveTab('shapes');
-              if (isCollapsed) setIsCollapsed(false);
-            }}
+            onClick={() => handleSelectTab('shapes')}
             title={t.shapes}
             className={`p-2.5 rounded-xl transition-all relative ${
               activeTab === 'shapes' && !isCollapsed
@@ -189,10 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              setActiveTab('templates');
-              if (isCollapsed) setIsCollapsed(false);
-            }}
+            onClick={() => handleSelectTab('templates')}
             title={t.templates}
             className={`p-2.5 rounded-xl transition-all relative ${
               activeTab === 'templates' && !isCollapsed
@@ -208,10 +257,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              setActiveTab('history');
-              if (isCollapsed) setIsCollapsed(false);
+            onClick={() => handleSelectTab('notes')}
+            title={t.pageNotes}
+            className={`p-2.5 rounded-xl transition-all relative ${
+              activeTab === 'notes' && !isCollapsed
+                ? 'shadow-xs font-semibold'
+                : 'opacity-70 hover:opacity-100'
+            }`}
+            style={{
+              backgroundColor: activeTab === 'notes' && !isCollapsed ? theme.ui.accent : 'transparent',
+              color: activeTab === 'notes' && !isCollapsed ? theme.ui.accentText : theme.ui.textPrimary,
             }}
+          >
+            <FileText className="w-5 h-5" />
+            {activePage?.description && activePage.description.trim() ? (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
+            ) : null}
+          </button>
+
+          <button
+            onClick={() => handleSelectTab('history')}
             title={t.history}
             className={`p-2.5 rounded-xl transition-all relative ${
               activeTab === 'history' && !isCollapsed
@@ -227,10 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              setActiveTab('team');
-              if (isCollapsed) setIsCollapsed(false);
-            }}
+            onClick={() => handleSelectTab('team')}
             title={t.team}
             className={`p-2.5 rounded-xl transition-all relative ${
               activeTab === 'team' && !isCollapsed
@@ -251,7 +313,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Toggle Collapse */}
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={handleToggleCollapse}
           className="p-2 rounded-lg opacity-60 hover:opacity-100 transition-opacity"
           title={isCollapsed ? 'باز کردن منو' : 'بستن منو'}
         >
@@ -348,7 +410,154 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* TAB 3: VERSION HISTORY & RESTORE */}
+          {/* TAB 3: PAGE NOTES & DOCUMENTATION */}
+          {activeTab === 'notes' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div
+                className="p-3.5 pb-2.5 border-b space-y-2 shrink-0"
+                style={{ borderColor: theme.ui.border }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <FileText className="w-4 h-4 text-amber-500" />
+                    <span>{t.pageNotes}</span>
+                  </div>
+                  {allPages && allPages.length > 1 && (
+                    <select
+                      value={activePage?.id}
+                      onChange={(e) => onSelectPage && onSelectPage(e.target.value)}
+                      className="text-xs px-2 py-1 rounded-lg border bg-transparent font-medium max-w-[130px] truncate outline-none cursor-pointer"
+                      style={{ borderColor: theme.ui.border, color: theme.ui.textPrimary }}
+                    >
+                      {allPages.map((p) => (
+                        <option
+                          key={p.id}
+                          value={p.id}
+                          className="bg-white dark:bg-slate-900"
+                        >
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] opacity-75">
+                  <span className="truncate">
+                    صفحه: <strong>{activePage?.name || 'صفحه ۱'}</strong>
+                  </span>
+                  <span className="font-mono text-[10px]">
+                    {notesDraft.length} حرف · {notesDraft.trim() ? notesDraft.trim().split(/\s+/).length : 0} کلمه
+                  </span>
+                </div>
+              </div>
+
+              {/* Scrollable Editor Area */}
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+                {/* Fast Snippet Templates */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-semibold opacity-60 block">درج سریع بخش‌های استاندارد:</span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => appendSnippet('🎯 هدف فرآیند:\n')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      + هدف فرآیند
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => appendSnippet('📋 پیش‌نیازها:\n- ')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      + پیش‌نیازها
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => appendSnippet('👥 مسئولین اجرا:\n- ')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      + مسئولین
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => appendSnippet('📌 نکات کلیدی:\n- ')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      + نکات
+                    </button>
+                  </div>
+                </div>
+
+                {/* Textarea */}
+                <div className="relative">
+                  <textarea
+                    value={notesDraft}
+                    onChange={(e) => handleNotesChange(e.target.value)}
+                    placeholder={t.pageNotesPlaceholder}
+                    rows={12}
+                    className="w-full text-xs leading-relaxed p-3 rounded-xl border outline-none resize-none transition-all focus:ring-2 focus:ring-blue-500/40 font-normal"
+                    style={{
+                      backgroundColor: theme.ui.surface,
+                      borderColor: theme.ui.border,
+                      color: theme.ui.textPrimary,
+                    }}
+                  />
+                </div>
+
+                {/* Auto-save indicator & Clear */}
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>ذخیره خودکار در پروژه فعال است</span>
+                  </div>
+                  {notesDraft && (
+                    <button
+                      type="button"
+                      onClick={() => handleNotesChange('')}
+                      className="text-[10px] opacity-50 hover:opacity-100 hover:text-red-500 transition-colors cursor-pointer"
+                    >
+                      پاک کردن متن
+                    </button>
+                  )}
+                </div>
+
+                {/* Info Card */}
+                <div
+                  className="p-3 rounded-xl border text-[11px] leading-relaxed space-y-1"
+                  style={{
+                    backgroundColor: theme.ui.surface,
+                    borderColor: theme.ui.border,
+                  }}
+                >
+                  <div className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    <span>💡 نمایش خودکار در خروجی‌ها</span>
+                  </div>
+                  <p className="opacity-75">
+                    این مستندات همراه با نمودار این صفحه در خروجی‌های <strong>پرینت کاغذی</strong>، فایل <strong>PDF</strong> و خروجی وب مستقل <strong>HTML</strong> نمایش داده خواهد شد.
+                  </p>
+                </div>
+
+                {onOpenPrint && (
+                  <button
+                    type="button"
+                    onClick={onOpenPrint}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold text-white transition-opacity hover:opacity-90 shadow-xs cursor-pointer"
+                    style={{ backgroundColor: theme.ui.accent }}
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>{t.printPreview} همراه با مستندات</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: VERSION HISTORY & RESTORE */}
           {activeTab === 'history' && (
             <div className="flex-1 flex flex-col p-4 overflow-hidden">
               <div className="pb-2 border-b mb-3" style={{ borderColor: theme.ui.border }}>

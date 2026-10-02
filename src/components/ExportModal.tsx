@@ -19,6 +19,7 @@ import {
   Check,
   Loader2,
   Sparkles,
+  Printer,
 } from 'lucide-react';
 
 interface ExportModalProps {
@@ -28,6 +29,7 @@ interface ExportModalProps {
   t: TranslationDictionary;
   project: FlowchartProject;
   svgRef: React.RefObject<SVGSVGElement | null>;
+  onOpenPrint?: () => void;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
@@ -37,6 +39,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   t,
   project,
   svgRef,
+  onOpenPrint,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -101,6 +104,35 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
         {/* Export Options Grid */}
         <div className="grid grid-cols-1 gap-2.5">
+          {/* Print Project (Featured) */}
+          {onOpenPrint && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenPrint();
+              }}
+              className="flex items-center gap-3 p-3 rounded-xl border-2 border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 text-right transition-all hover:scale-[1.01] hover:shadow-md group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Printer className="w-5 h-5" />
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <div className="text-xs md:text-sm font-bold text-blue-900 dark:text-blue-100 flex items-center gap-2">
+                  <span>{t.printReadyTitle}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-600 text-white font-semibold">
+                    پیشرفته
+                  </span>
+                </div>
+                <div className="text-[11px] opacity-75 leading-tight mt-0.5 text-blue-800 dark:text-blue-200">
+                  خروجی آماده پرینت رنگی و خاکستری، تنظیم فونت، فاصله توضیحات و اندازه کاغذ
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold px-2 py-1 rounded bg-blue-600 text-white">
+                PRINT
+              </span>
+            </button>
+          )}
+
           {/* PNG */}
           <button
             onClick={() => handleExport('png')}

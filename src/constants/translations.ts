@@ -167,6 +167,37 @@ export interface TranslationDictionary {
   duplicatePage: string;
   deletePage: string;
   deletePageConfirm: string;
+
+  // Page Notes & Print Settings
+  pageNotes: string;
+  pageNotesTitle: string;
+  pageNotesPlaceholder: string;
+  pageNotesHint: string;
+  printProject: string;
+  printPreview: string;
+  printReadyTitle: string;
+  colorMode: string;
+  fullColor: string;
+  grayscale: string;
+  monochrome: string;
+  fontSettings: string;
+  fontFamily: string;
+  descFontSize: string;
+  textSpacing: string;
+  descPosition: string;
+  positionBelow: string;
+  positionAbove: string;
+  positionAppendix: string;
+  paperSettings: string;
+  paperSize: string;
+  orientation: string;
+  landscape: string;
+  portrait: string;
+  allPages: string;
+  currentPageOnly: string;
+  printNow: string;
+  downloadPrintHtml: string;
+  saveNotes: string;
 }
 
 export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
@@ -339,6 +370,37 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     duplicatePage: 'تکثیر صفحه',
     deletePage: 'حذف صفحه',
     deletePageConfirm: 'آیا از حذف این صفحه مطمئن هستید؟',
+
+    // Page Notes & Print Settings
+    pageNotes: 'توضیحات و مستندات صفحه',
+    pageNotesTitle: 'توضیحات اولیه فلوچارت (این صفحه)',
+    pageNotesPlaceholder: 'در این بخش می‌توانید توضیحات اولیه، اهداف فرآیند، پیش‌نیازها و نکات مهم این صفحه از فلوچارت را بنویسید...\nاین توضیحات در خروجی‌های چاپ، PDF و فایل HTML نمایش داده خواهند شد.',
+    pageNotesHint: 'توضیحات این بخش به‌طور خودکار ذخیره شده و در نسخه‌های چاپ (Print) و فایل خروجی HTML گنجانده می‌شود.',
+    printProject: 'چاپ و پرینت پروژه',
+    printPreview: 'پیش‌نمایش چاپ',
+    printReadyTitle: 'آماده‌سازی خروجی پرینت (رنگی و سیاه و سفید)',
+    colorMode: 'حالت رنگی خروجی',
+    fullColor: 'رنگی کامل (Original Color)',
+    grayscale: 'خاکستری استاندارد (Grayscale)',
+    monochrome: 'سیاه و سفید / کم‌مصرف (Line-Art)',
+    fontSettings: 'تنظیمات قلم و فونت متن',
+    fontFamily: 'نوع قلم (Font)',
+    descFontSize: 'اندازه فونت توضیحات',
+    textSpacing: 'فاصله متن از فلوچارت',
+    descPosition: 'موقعیت قرارگیری توضیحات',
+    positionBelow: 'پایین فلوچارت (پیش‌فرض)',
+    positionAbove: 'بالای فلوچارت',
+    positionAppendix: 'صفحه مجزا به عنوان ضمیمه',
+    paperSettings: 'تنظیمات کاغذ و صفحه',
+    paperSize: 'اندازه کاغذ',
+    orientation: 'جهت صفحه',
+    landscape: 'افقی (Landscape)',
+    portrait: 'عمودی (Portrait)',
+    allPages: 'تمام صفحات پروژه',
+    currentPageOnly: 'فقط صفحه فعال فعلی',
+    printNow: 'ارسال به پرینتر (Print)',
+    downloadPrintHtml: 'دانلود فایل HTML آماده پرینت',
+    saveNotes: 'ذخیره توضیحات',
   },
   en: {
     appName: 'FlowCraft',
@@ -509,5 +571,36 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     duplicatePage: 'Duplicate Page',
     deletePage: 'Delete Page',
     deletePageConfirm: 'Are you sure you want to delete this page?',
+
+    // Page Notes & Print Settings
+    pageNotes: 'Page Documentation & Notes',
+    pageNotesTitle: 'Page Overview & Notes',
+    pageNotesPlaceholder: 'Write initial explanations, objectives, prerequisites, and notes for this flowchart page...\nThis description will be included in Print, PDF, and interactive HTML exports.',
+    pageNotesHint: 'Notes are saved automatically with this page and included in print layouts and HTML exports.',
+    printProject: 'Print Project',
+    printPreview: 'Print Preview',
+    printReadyTitle: 'Print Ready Output (Color & Grayscale)',
+    colorMode: 'Color Mode',
+    fullColor: 'Full Color (Original)',
+    grayscale: 'Standard Grayscale',
+    monochrome: 'Monochrome (Ink Saver)',
+    fontSettings: 'Font & Typography Settings',
+    fontFamily: 'Font Family',
+    descFontSize: 'Description Font Size',
+    textSpacing: 'Text Spacing from Flowchart',
+    descPosition: 'Description Placement',
+    positionBelow: 'Below Flowchart (Default)',
+    positionAbove: 'Above Flowchart',
+    positionAppendix: 'Separate Appendix Page',
+    paperSettings: 'Paper & Page Layout',
+    paperSize: 'Paper Size',
+    orientation: 'Orientation',
+    landscape: 'Landscape (Recommended)',
+    portrait: 'Portrait',
+    allPages: 'All Project Pages',
+    currentPageOnly: 'Active Page Only',
+    printNow: 'Send to Printer (Print)',
+    downloadPrintHtml: 'Download Print-Ready HTML',
+    saveNotes: 'Save Notes',
   },
 };

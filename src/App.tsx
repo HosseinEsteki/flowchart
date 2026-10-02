@@ -29,6 +29,7 @@ import { VersionHistoryModal } from './components/VersionHistoryModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { PagesBar } from './components/PagesBar';
 import { ProjectsModal, ProjectSummary } from './components/ProjectsModal';
+import { PrintModal } from './components/PrintModal';
 
 const DEFAULT_PROJECT_ID = 'project-default';
 
@@ -180,6 +181,9 @@ export default function App() {
 
   // Modals
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'team'>('shapes');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [collaborationModalOpen, setCollaborationModalOpen] = useState(false);
   const [versionsModalOpen, setVersionsModalOpen] = useState(false);
@@ -670,6 +674,31 @@ export default function App() {
         setSelectedNodeId(null);
         setSelectedEdgeId(null);
       },
+    });
+  };
+
+  const handleOpenPageNotes = (pageId: string) => {
+    if (pageId && pageId !== project.activePageId) {
+      handleSelectPage(pageId);
+    }
+    setSidebarTab('notes');
+    setIsSidebarCollapsed(false);
+  };
+
+  const handleUpdatePageDescription = (pageId: string, description: string) => {
+    setProject((prev) => {
+      const curPages = prev.pages || [];
+      const updatedPages = curPages.map((pg) =>
+        pg.id === pageId ? { ...pg, description } : pg
+      );
+      const updated: FlowchartProject = {
+        ...prev,
+        pages: updatedPages,
+        description: pageId === prev.activePageId ? description : prev.description,
+        updatedAt: Date.now(),
+      };
+      triggerCloudSave(updated);
+      return updated;
     });
   };
 
@@ -1231,6 +1260,7 @@ export default function App() {
           setZoom(1);
           setPan({ x: 40, y: 30 });
         }}
+        onOpenPrint={() => setPrintModalOpen(true)}
         onOpenExport={() => setExportModalOpen(true)}
         onOpenCollaboration={() => setCollaborationModalOpen(true)}
         onOpenShortcuts={() => setShortcutsModalOpen(true)}
@@ -1258,6 +1288,23 @@ export default function App() {
           chatMessages={chatMessages}
           onSendMessage={handleSendMessage}
           roomCode={project.id}
+          activeTab={sidebarTab}
+          onTabChange={setSidebarTab}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={setIsSidebarCollapsed}
+          activePage={
+            (project.pages || []).find((p) => p.id === (project.activePageId || 'page-1')) || {
+              id: project.activePageId || 'page-1',
+              name: 'صفحه ۱',
+              description: project.description,
+              nodes: project.nodes,
+              edges: project.edges,
+            }
+          }
+          allPages={project.pages}
+          onSelectPage={handleSelectPage}
+          onUpdatePageDescription={handleUpdatePageDescription}
+          onOpenPrint={() => setPrintModalOpen(true)}
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
@@ -1306,6 +1353,8 @@ export default function App() {
             onRenamePage={handleRenamePage}
             onDuplicatePage={handleDuplicatePage}
             onDeletePage={handleDeletePage}
+            onOpenPageNotes={handleOpenPageNotes}
+            onOpenPrint={() => setPrintModalOpen(true)}
             theme={currentTheme}
             t={t}
           />
@@ -1372,6 +1421,15 @@ export default function App() {
         t={t}
         project={project}
         svgRef={svgRef}
+        onOpenPrint={() => setPrintModalOpen(true)}
+      />
+
+      <PrintModal
+        isOpen={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        project={project}
+        theme={currentTheme}
+        t={t}
       />
 
       <ShortcutsModal

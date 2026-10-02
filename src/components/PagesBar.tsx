@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, MoreVertical, Copy, Trash2, Edit3, Layers, Check } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Plus, MoreVertical, Copy, Trash2, Edit3, Layers, Check, FileText, Printer } from 'lucide-react';
 import { FlowchartPage } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
@@ -12,6 +13,8 @@ interface PagesBarProps {
   onRenamePage: (pageId: string, newName: string) => void;
   onDuplicatePage: (pageId: string) => void;
   onDeletePage: (pageId: string) => void;
+  onOpenPageNotes: (pageId: string) => void;
+  onOpenPrint?: () => void;
   theme: ColorTheme;
   t: TranslationDictionary;
 }
@@ -24,12 +27,15 @@ export const PagesBar: React.FC<PagesBarProps> = ({
   onRenamePage,
   onDuplicatePage,
   onDeletePage,
+  onOpenPageNotes,
+  onOpenPrint,
   theme,
   t,
 }) => {
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [menuPageId, setMenuPageId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -40,23 +46,35 @@ export const PagesBar: React.FC<PagesBarProps> = ({
     }
   }, [editingPageId]);
 
-  // Close context menu on click outside
+  // Close context menu on click outside, scroll, or resize
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuPageId(null);
+        setMenuAnchor(null);
       }
+    };
+    const handleDismiss = () => {
+      setMenuPageId(null);
+      setMenuAnchor(null);
     };
     if (menuPageId) {
       window.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleDismiss, true);
+      window.addEventListener('resize', handleDismiss);
     }
-    return () => window.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleDismiss, true);
+      window.removeEventListener('resize', handleDismiss);
+    };
   }, [menuPageId]);
 
   const handleStartRename = (page: FlowchartPage) => {
     setEditingPageId(page.id);
     setEditingName(page.name);
     setMenuPageId(null);
+    setMenuAnchor(null);
   };
 
   const handleSaveRename = (pageId: string) => {
@@ -140,10 +158,33 @@ export const PagesBar: React.FC<PagesBarProps> = ({
                     {page.nodes.length}
                   </span>
 
+                  {page.description && page.description.trim() ? (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenPageNotes(page.id);
+                      }}
+                      className="text-amber-400 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10"
+                      title="مشاهده مستندات این صفحه در سایدبار"
+                    >
+                      <FileText className="w-3 h-3" />
+                    </span>
+                  ) : null}
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setMenuPageId(menuPageId === page.id ? null : page.id);
+                      if (menuPageId === page.id) {
+                        setMenuPageId(null);
+                        setMenuAnchor(null);
+                      } else {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setMenuAnchor({
+                          x: rect.left,
+                          y: rect.top,
+                        });
+                        setMenuPageId(page.id);
+                      }
                     }}
                     className={`p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-opacity ${
                       isActive ? 'opacity-90 hover:opacity-100' : 'opacity-40 group-hover:opacity-100'
@@ -152,55 +193,6 @@ export const PagesBar: React.FC<PagesBarProps> = ({
                   >
                     <MoreVertical className="w-3 h-3" />
                   </button>
-                </div>
-              )}
-
-              {/* Context Dropdown Menu */}
-              {menuPageId === page.id && (
-                <div
-                  ref={menuRef}
-                  className="absolute bottom-full mb-1.5 start-0 z-50 w-40 rounded-xl shadow-xl border py-1 animate-in fade-in zoom-in-95 text-xs font-normal"
-                  style={{
-                    backgroundColor: theme.ui.cardBg,
-                    borderColor: theme.ui.border,
-                    color: theme.ui.textPrimary,
-                  }}
-                >
-                  <button
-                    onClick={() => handleStartRename(page)}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-right transition-colors"
-                  >
-                    <Edit3 className="w-3.5 h-3.5 text-blue-500" />
-                    <span>{t.renamePage}</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      onDuplicatePage(page.id);
-                      setMenuPageId(null);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-right transition-colors"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>{t.duplicatePage}</span>
-                  </button>
-
-                  {pages.length > 1 && (
-                    <div className="border-t my-1" style={{ borderColor: theme.ui.border }} />
-                  )}
-
-                  {pages.length > 1 && (
-                    <button
-                      onClick={() => {
-                        onDeletePage(page.id);
-                        setMenuPageId(null);
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 text-right transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>{t.deletePage}</span>
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -221,9 +213,107 @@ export const PagesBar: React.FC<PagesBarProps> = ({
         </button>
       </div>
 
-      <div className="hidden md:flex items-center gap-2 text-[11px] opacity-65 shrink-0">
-        <span>{pages.length} {t.page}</span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center text-[11px] opacity-60 px-1 font-mono">
+          <span>{pages.length} {t.page}</span>
+        </div>
       </div>
+
+      {/* Floating Context Dropdown Menu via Portal to escape all overflow clipping */}
+      {menuPageId && menuAnchor && createPortal(
+        (() => {
+          const activeMenuPage = pages.find((p) => p.id === menuPageId);
+          if (!activeMenuPage) return null;
+          const menuWidth = 192;
+          let leftPos = menuAnchor.x - menuWidth + 24;
+          if (leftPos < 8) leftPos = 8;
+          if (leftPos + menuWidth > window.innerWidth - 8) {
+            leftPos = window.innerWidth - menuWidth - 8;
+          }
+          const bottomPos = Math.max(10, window.innerHeight - menuAnchor.y + 6);
+
+          return (
+            <div
+              ref={menuRef}
+              className="fixed z-9999 w-48 rounded-xl shadow-2xl border py-1 animate-in fade-in zoom-in-95 text-xs font-normal"
+              style={{
+                backgroundColor: theme.ui.cardBg,
+                borderColor: theme.ui.border,
+                color: theme.ui.textPrimary,
+                left: `${leftPos}px`,
+                bottom: `${bottomPos}px`,
+              }}
+            >
+              <button
+                onClick={() => {
+                  onOpenPageNotes(activeMenuPage.id);
+                  setMenuPageId(null);
+                  setMenuAnchor(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-right transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5 text-amber-500" />
+                <span>{t.pageNotes}</span>
+              </button>
+
+              {onOpenPrint && (
+                <button
+                  onClick={() => {
+                    onOpenPrint();
+                    setMenuPageId(null);
+                    setMenuAnchor(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-right transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5 text-blue-500" />
+                  <span>{t.printProject}</span>
+                </button>
+              )}
+
+              <div className="border-t my-1" style={{ borderColor: theme.ui.border }} />
+
+              <button
+                onClick={() => handleStartRename(activeMenuPage)}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-right transition-colors"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-blue-500" />
+                <span>{t.renamePage}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  onDuplicatePage(activeMenuPage.id);
+                  setMenuPageId(null);
+                  setMenuAnchor(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-right transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5 text-emerald-500" />
+                <span>{t.duplicatePage}</span>
+              </button>
+
+              {pages.length > 1 && (
+                <div className="border-t my-1" style={{ borderColor: theme.ui.border }} />
+              )}
+
+              {pages.length > 1 && (
+                <button
+                  onClick={() => {
+                    onDeletePage(activeMenuPage.id);
+                    setMenuPageId(null);
+                    setMenuAnchor(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 text-right transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{t.deletePage}</span>
+                </button>
+              )}
+            </div>
+          );
+        })(),
+        document.body
+      )}
     </div>
   );
 };

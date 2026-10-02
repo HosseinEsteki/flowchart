@@ -62,8 +62,35 @@ export interface FlowchartVersion {
 export interface FlowchartPage {
   id: string;
   name: string;
+  description?: string;
   nodes: FlowchartNode[];
   edges: FlowchartEdge[];
+}
+
+export type PrintColorMode = 'color' | 'grayscale' | 'monochrome';
+export type PrintFontFamily = 'vazirmatn' | 'system' | 'shabnam' | 'sans' | 'serif';
+export type PrintPaperSize = 'a4' | 'a3' | 'letter' | 'legal';
+export type PrintOrientation = 'landscape' | 'portrait';
+export type PrintDescPosition = 'below' | 'above' | 'appendix';
+export type PrintTextAlign = 'right' | 'center' | 'left' | 'justify';
+
+export interface PrintSettings {
+  colorMode: PrintColorMode;
+  fontFamily: PrintFontFamily;
+  descFontSize: number;
+  titleFontSize: number;
+  fontWeight: 'normal' | 'bold';
+  textAlign: PrintTextAlign;
+  spacing: number;
+  descPosition: PrintDescPosition;
+  paperSize: PrintPaperSize;
+  orientation: PrintOrientation;
+  marginSize: 'compact' | 'normal' | 'spacious';
+  showPageNumbers: boolean;
+  showHeaderFooter: boolean;
+  showDate: boolean;
+  showBorders: boolean;
+  targetPages: 'all' | 'current';
 }
 
 export interface FlowchartProject {

@@ -16,6 +16,7 @@ import {
   Check,
   Loader2,
   FolderKanban,
+  Printer,
 } from 'lucide-react';
 import { THEMES } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
@@ -39,6 +40,7 @@ interface HeaderProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onResetZoom: () => void;
+  onOpenPrint: () => void;
   onOpenExport: () => void;
   onOpenCollaboration: () => void;
   onOpenShortcuts: () => void;
@@ -65,6 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
   onZoomIn,
   onZoomOut,
   onResetZoom,
+  onOpenPrint,
   onOpenExport,
   onOpenCollaboration,
   onOpenShortcuts,
@@ -327,6 +330,20 @@ export const Header: React.FC<HeaderProps> = ({
           title={t.shortcuts}
         >
           <Keyboard className="w-4 h-4" />
+        </button>
+
+        {/* Print Button */}
+        <button
+          onClick={onOpenPrint}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-85 transition-all shadow-xs"
+          style={{
+            borderColor: currentTheme.ui.border,
+            backgroundColor: currentTheme.ui.surface,
+          }}
+          title={t.printProject}
+        >
+          <Printer className="w-4 h-4 text-blue-500" />
+          <span className="hidden sm:inline">{t.printProject}</span>
         </button>
 
         {/* Primary Action: Export Button */}
