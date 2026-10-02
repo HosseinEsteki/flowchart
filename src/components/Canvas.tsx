@@ -91,8 +91,55 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
   const [editingEdgeLabel, setEditingEdgeLabel] = useState('');
 
-  // Show minimap
+  // Show minimap & interactive navigation
   const [showMinimap, setShowMinimap] = useState(true);
+  const minimapSvgRef = useRef<SVGSVGElement | null>(null);
+  const [isMinimapDragging, setIsMinimapDragging] = useState(false);
+
+  const handleMinimapNavigate = useCallback(
+    (clientX: number, clientY: number) => {
+      const svg = minimapSvgRef.current;
+      const container = containerRef.current;
+      if (!svg || !container) return;
+
+      const pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = clientY;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const svgPoint = pt.matrixTransform(ctm.inverse());
+
+      const containerRect = container.getBoundingClientRect();
+      const targetCanvasX = svgPoint.x;
+      const targetCanvasY = svgPoint.y;
+
+      // Center the viewport on targetCanvasX, targetCanvasY
+      const newPanX = containerRect.width / 2 - targetCanvasX * zoom;
+      const newPanY = containerRect.height / 2 - targetCanvasY * zoom;
+
+      setPan({ x: newPanX, y: newPanY });
+    },
+    [zoom, setPan]
+  );
+
+  useEffect(() => {
+    if (!isMinimapDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      handleMinimapNavigate(e.clientX, e.clientY);
+    };
+
+    const handleMouseUp = () => {
+      setIsMinimapDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isMinimapDragging, handleMinimapNavigate]);
 
   // Convert client screen mouse coordinates to canvas virtual coordinates
   const screenToCanvas = useCallback(
@@ -271,8 +318,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Selected node object for floating context toolbar
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
-  // Bounding box for minimap
-  const bbox = getNodeBoundingBox(nodes, 120);
+  // Bounding box for minimap framing all nodes with comfortable padding
+  const bbox = getNodeBoundingBox(nodes, 100);
 
   return (
     <div
@@ -833,31 +880,62 @@ export const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
 
-      {/* Minimap Radar in Bottom Corner */}
+      {/* Minimap Radar in Bottom Corner with Interactive Click & Drag Navigation */}
       <div
-        className="absolute bottom-4 left-4 z-20 border rounded-xl shadow-lg p-2 overflow-hidden transition-all hidden sm:block"
+        className="absolute bottom-4 left-4 z-20 border rounded-xl shadow-xl p-2 overflow-hidden transition-all hidden sm:block"
         style={{
           backgroundColor: theme.ui.cardBg,
           borderColor: theme.ui.border,
-          width: showMinimap ? 160 : 36,
-          height: showMinimap ? 110 : 36,
+          width: showMinimap ? 180 : 36,
+          height: showMinimap ? 125 : 36,
         }}
       >
         <button
           onClick={() => setShowMinimap(!showMinimap)}
-          className="absolute top-1.5 left-1.5 p-1 rounded hover:opacity-80 z-10"
-          title={t.minimap}
+          className="absolute top-1.5 left-1.5 p-1 rounded hover:opacity-80 z-10 transition-opacity"
+          title={showMinimap ? 'بستن رادار مینی‌مپ' : t.minimap}
         >
           <Compass className="w-3.5 h-3.5 opacity-60" />
         </button>
 
         {showMinimap && (
-          <div className="w-full h-full pt-4 relative">
+          <div
+            className="w-full h-full pt-4 relative select-none"
+            title="کلیک یا کشیدن برای پیمایش فوری به این موقعیت"
+          >
             <svg
+              ref={minimapSvgRef}
               viewBox={`${bbox.minX} ${bbox.minY} ${bbox.width} ${bbox.height}`}
-              className="w-full h-full rounded"
+              className="w-full h-full rounded cursor-pointer active:cursor-grabbing select-none"
               style={{ backgroundColor: theme.ui.surface }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setIsMinimapDragging(true);
+                handleMinimapNavigate(e.clientX, e.clientY);
+              }}
             >
+              <title>کلیک یا کشیدن برای پیمایش فوری به این موقعیت</title>
+              {/* Edges mini lines */}
+              {edges.map((e) => {
+                const s = nodes.find((n) => n.id === e.sourceNodeId);
+                const t = nodes.find((n) => n.id === e.targetNodeId);
+                if (!s || !t) return null;
+                return (
+                  <line
+                    key={e.id}
+                    x1={s.x + s.width / 2}
+                    y1={s.y + s.height / 2}
+                    x2={t.x + t.width / 2}
+                    y2={t.y + t.height / 2}
+                    stroke={theme.isDark ? '#64748B' : '#94A3B8'}
+                    strokeWidth={Math.max(1, bbox.width / 220)}
+                    strokeOpacity={0.65}
+                    className="pointer-events-none"
+                  />
+                );
+              })}
+
               {/* Nodes mini rectangles */}
               {nodes.map((n) => (
                 <rect
@@ -869,7 +947,8 @@ export const Canvas: React.FC<CanvasProps> = ({
                   rx={3}
                   fill={n.fill}
                   stroke={n.stroke}
-                  strokeWidth={2}
+                  strokeWidth={Math.max(1, bbox.width / 160)}
+                  className="pointer-events-none"
                 />
               ))}
             </svg>

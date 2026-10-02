@@ -8,7 +8,6 @@ import {
   ZoomOut,
   Maximize2,
   Download,
-  Users,
   Palette,
   Keyboard,
   History,
@@ -16,7 +15,6 @@ import {
   Check,
   Loader2,
   FolderKanban,
-  Printer,
 } from 'lucide-react';
 import { THEMES } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
@@ -30,7 +28,7 @@ interface HeaderProps {
   onToggleLang: () => void;
   activeThemeId: string;
   onThemeSelect: (themeId: string) => void;
-  collaborators: Collaborator[];
+  collaborators?: Collaborator[];
   isSaving: boolean;
   canUndo: boolean;
   canRedo: boolean;
@@ -40,9 +38,9 @@ interface HeaderProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onResetZoom: () => void;
-  onOpenPrint: () => void;
+  onOpenPrint?: () => void;
   onOpenExport: () => void;
-  onOpenCollaboration: () => void;
+  onOpenCollaboration?: () => void;
   onOpenShortcuts: () => void;
   onOpenVersions: () => void;
   onOpenProjects: () => void;
@@ -221,26 +219,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Zone 3: Actions & Modals */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-        {/* Collaborators online count button */}
-        <button
-          onClick={onOpenCollaboration}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors hover:opacity-90"
-          style={{
-            borderColor: currentTheme.ui.border,
-            backgroundColor: currentTheme.ui.surface,
-          }}
-          title={t.connectedTeammates}
-        >
-          <div className="relative">
-            <Users className="w-4 h-4" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          </div>
-          <span className="font-mono tabular-nums font-semibold">
-            {collaborators.length || 1}
-          </span>
-          <span className="hidden xl:inline">{t.collaborate}</span>
-        </button>
-
         {/* Version History Button */}
         <button
           onClick={onOpenVersions}
@@ -330,20 +308,6 @@ export const Header: React.FC<HeaderProps> = ({
           title={t.shortcuts}
         >
           <Keyboard className="w-4 h-4" />
-        </button>
-
-        {/* Print Button */}
-        <button
-          onClick={onOpenPrint}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-85 transition-all shadow-xs"
-          style={{
-            borderColor: currentTheme.ui.border,
-            backgroundColor: currentTheme.ui.surface,
-          }}
-          title={t.printProject}
-        >
-          <Printer className="w-4 h-4 text-blue-500" />
-          <span className="hidden sm:inline">{t.printProject}</span>
         </button>
 
         {/* Primary Action: Export Button */}

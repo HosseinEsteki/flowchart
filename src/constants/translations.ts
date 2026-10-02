@@ -120,6 +120,10 @@ export interface TranslationDictionary {
   exportSvgDesc: string;
   exportHtml: string;
   exportHtmlDesc: string;
+  exportVisZip: string;
+  exportVisZipDesc: string;
+  exportVisSingleHtml: string;
+  exportVisSingleHtmlDesc: string;
   exportPdf: string;
   exportPdfDesc: string;
   exportJson: string;
@@ -198,6 +202,12 @@ export interface TranslationDictionary {
   printNow: string;
   downloadPrintHtml: string;
   saveNotes: string;
+  projectSettings: string;
+  projectTitleLabel: string;
+  projectDescLabel: string;
+  projectDescPlaceholder: string;
+  saveChanges: string;
+  changesSaved: string;
 }
 
 export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
@@ -321,8 +331,12 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     exportPngDesc: 'تصویر رندر شده با رزولوشن بالا برای ارائه و وب',
     exportSvg: 'فایل برداری (SVG)',
     exportSvgDesc: 'فایل وکتور مقیاس‌پذیر با کیفیت نامحدود',
-    exportHtml: 'فایل وب تعاملی (HTML)',
-    exportHtmlDesc: 'صفحه وب مستقل با زوم، جابجایی و جدول خلاصه فرآیند',
+    exportHtml: 'پکیج آفلاین Vis-Network (فایل ZIP)',
+    exportHtmlDesc: 'شامل فایل کامل index.html و پوشه assets (کاملاً لوکال و آفلاین) با شبیه‌ساز گام‌به‌گام و گراف هوشمند',
+    exportVisZip: 'پکیج آفلاین Vis-Network (فایل ZIP)',
+    exportVisZipDesc: 'شامل فایل کامل index.html و پوشه assets (کاملاً لوکال و آفلاین) با شبیه‌ساز گام‌به‌گام و گراف هوشمند',
+    exportVisSingleHtml: 'فایل تک‌صفحه‌ای Vis-Network (HTML)',
+    exportVisSingleHtmlDesc: 'صفحه وب مستقل هوشمند با موتور Vis-Network و شبیه‌ساز گام‌به‌گام',
     exportPdf: 'سند قابل چاپ (PDF)',
     exportPdfDesc: 'خروجی استاندارد PDF با صفحه مناسب برای گزارش و چاپ',
     exportJson: 'فایل پشتیبان داده (JSON)',
@@ -401,6 +415,12 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     printNow: 'ارسال به پرینتر (Print)',
     downloadPrintHtml: 'دانلود فایل HTML آماده پرینت',
     saveNotes: 'ذخیره توضیحات',
+    projectSettings: 'تنظیمات پروژه',
+    projectTitleLabel: 'نام پروژه',
+    projectDescLabel: 'شرح و مستندات پروژه',
+    projectDescPlaceholder: 'توضیحات و اهداف کلی این فلوچارت یا فرآیند را بنویسید...',
+    saveChanges: 'ذخیره تغییرات',
+    changesSaved: 'تغییرات پروژه با موفقیت ذخیره شد',
   },
   en: {
     appName: 'FlowCraft',
@@ -522,8 +542,12 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     exportPngDesc: 'Rasterized image with transparency or background',
     exportSvg: 'Scalable Vector (SVG)',
     exportSvgDesc: 'Crisp vector graphic for publishing and printing',
-    exportHtml: 'Standalone Interactive HTML',
-    exportHtmlDesc: 'Self-contained webpage with embedded interactive diagram viewer',
+    exportHtml: 'Vis-Network Offline Package (ZIP)',
+    exportHtmlDesc: 'Complete index.html and assets folder with local vis-network and interactive step-by-step simulator',
+    exportVisZip: 'Vis-Network Offline Package (ZIP)',
+    exportVisZipDesc: 'Complete index.html and assets folder with local vis-network and interactive step-by-step simulator',
+    exportVisSingleHtml: 'Single-File Vis-Network HTML',
+    exportVisSingleHtmlDesc: 'Self-contained standalone webpage powered by Vis-Network and step-by-step simulator',
     exportPdf: 'Print-Ready PDF Document',
     exportPdfDesc: 'Formatted PDF layout with header and centered diagram',
     exportJson: 'Backup Project (JSON)',
@@ -602,5 +626,11 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     printNow: 'Send to Printer (Print)',
     downloadPrintHtml: 'Download Print-Ready HTML',
     saveNotes: 'Save Notes',
+    projectSettings: 'Project Settings',
+    projectTitleLabel: 'Project Name',
+    projectDescLabel: 'Project Description',
+    projectDescPlaceholder: 'Write overall project description and flowchart goals...',
+    saveChanges: 'Save Changes',
+    changesSaved: 'Project changes saved successfully',
   },
 };

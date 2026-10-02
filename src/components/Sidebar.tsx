@@ -22,6 +22,8 @@ import {
   Clock,
   User,
   Printer,
+  Settings,
+  FolderKanban,
 } from 'lucide-react';
 import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage, FlowchartPage } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
@@ -37,13 +39,13 @@ interface SidebarProps {
   versions: FlowchartVersion[];
   onSaveVersion: (name: string) => void;
   onRestoreVersion: (versionId: string) => void;
-  collaborators: Collaborator[];
-  currentUserId: string;
-  chatMessages: ChatMessage[];
-  onSendMessage: (text: string) => void;
-  roomCode: string;
-  activeTab?: 'shapes' | 'templates' | 'notes' | 'history' | 'team';
-  onTabChange?: (tab: 'shapes' | 'templates' | 'notes' | 'history' | 'team') => void;
+  collaborators?: Collaborator[];
+  currentUserId?: string;
+  chatMessages?: ChatMessage[];
+  onSendMessage?: (text: string) => void;
+  roomCode?: string;
+  activeTab?: 'shapes' | 'templates' | 'notes' | 'history' | 'settings';
+  onTabChange?: (tab: 'shapes' | 'templates' | 'notes' | 'history' | 'settings') => void;
   isCollapsed?: boolean;
   onToggleCollapse?: (collapsed: boolean) => void;
   activePage?: FlowchartPage;
@@ -51,6 +53,11 @@ interface SidebarProps {
   onSelectPage?: (pageId: string) => void;
   onUpdatePageDescription?: (pageId: string, description: string) => void;
   onOpenPrint?: () => void;
+  projectTitle?: string;
+  projectDescription?: string;
+  onUpdateProjectDetails?: (title: string, description: string) => void;
+  totalNodesCount?: number;
+  totalEdgesCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -76,12 +83,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectPage,
   onUpdatePageDescription,
   onOpenPrint,
+  projectTitle,
+  projectDescription,
+  onUpdateProjectDetails,
+  totalNodesCount,
+  totalEdgesCount,
 }) => {
-  const [internalTab, setInternalTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'team'>('shapes');
+  const [internalTab, setInternalTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'settings'>('shapes');
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [newVersionName, setNewVersionName] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const [projectTitleDraft, setProjectTitleDraft] = useState(projectTitle || '');
+  const [projectDescDraft, setProjectDescDraft] = useState(projectDescription || '');
+  const [isSavedProjectSettings, setIsSavedProjectSettings] = useState(false);
+
+  useEffect(() => {
+    setProjectTitleDraft(projectTitle || '');
+  }, [projectTitle]);
+
+  useEffect(() => {
+    setProjectDescDraft(projectDescription || '');
+  }, [projectDescription]);
+
+  const handleSaveProjectDetails = () => {
+    if (onUpdateProjectDetails) {
+      onUpdateProjectDetails(projectTitleDraft, projectDescDraft);
+    }
+    setIsSavedProjectSettings(true);
+    setTimeout(() => setIsSavedProjectSettings(false), 3000);
+  };
 
   const activeTab = activeTabProp !== undefined ? activeTabProp : internalTab;
   const isCollapsed = isCollapsedProp !== undefined ? isCollapsedProp : internalCollapsed;
@@ -104,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     handleNotesChange(updated);
   };
 
-  const handleSelectTab = (tab: 'shapes' | 'templates' | 'notes' | 'history' | 'team') => {
+  const handleSelectTab = (tab: 'shapes' | 'templates' | 'notes' | 'history' | 'settings') => {
     if (onTabChange) onTabChange(tab);
     setInternalTab(tab);
     if (isCollapsed) {
@@ -200,7 +232,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
-    onSendMessage(chatInput.trim());
+    if (onSendMessage) {
+      onSendMessage(chatInput.trim());
+    }
     setChatInput('');
   };
 
@@ -292,22 +326,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => handleSelectTab('team')}
-            title={t.team}
+            onClick={() => handleSelectTab('settings')}
+            title={t.projectSettings}
             className={`p-2.5 rounded-xl transition-all relative ${
-              activeTab === 'team' && !isCollapsed
+              activeTab === 'settings' && !isCollapsed
                 ? 'shadow-xs font-semibold'
                 : 'opacity-70 hover:opacity-100'
             }`}
             style={{
-              backgroundColor: activeTab === 'team' && !isCollapsed ? theme.ui.accent : 'transparent',
-              color: activeTab === 'team' && !isCollapsed ? theme.ui.accentText : theme.ui.textPrimary,
+              backgroundColor: activeTab === 'settings' && !isCollapsed ? theme.ui.accent : 'transparent',
+              color: activeTab === 'settings' && !isCollapsed ? theme.ui.accentText : theme.ui.textPrimary,
             }}
           >
-            <Users className="w-5 h-5" />
-            {collaborators.length > 1 && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
-            )}
+            <Settings className="w-5 h-5" />
           </button>
         </div>
 
@@ -658,121 +689,133 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* TAB 4: TEAM COLLABORATION & ACTIVITY */}
-          {activeTab === 'team' && (
-            <div className="flex-1 flex flex-col p-4 overflow-hidden">
-              <div className="pb-2 border-b mb-3" style={{ borderColor: theme.ui.border }}>
-                <span className="text-xs font-bold uppercase tracking-wider opacity-60">
-                  {t.collaborationTitle}
+          {/* TAB 5: PROJECT SETTINGS & METADATA */}
+          {activeTab === 'settings' && (
+            <div className="flex-1 flex flex-col p-4 overflow-y-auto space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: theme.ui.border }}>
+                <div className="flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-blue-500" />
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {t.projectSettings}
+                  </span>
+                </div>
+                {isSavedProjectSettings && (
+                  <span className="text-[11px] font-medium text-emerald-500 flex items-center gap-1 animate-in fade-in">
+                    <Check className="w-3.5 h-3.5" />
+                    {t.changesSaved}
+                  </span>
+                )}
+              </div>
+
+              {/* Project Title Field */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold flex items-center gap-1.5">
+                  <FolderKanban className="w-3.5 h-3.5 text-blue-500" />
+                  <span>{t.projectTitleLabel}</span>
+                </label>
+                <input
+                  type="text"
+                  value={projectTitleDraft}
+                  onChange={(e) => setProjectTitleDraft(e.target.value)}
+                  onBlur={() => {
+                    if (onUpdateProjectDetails) {
+                      onUpdateProjectDetails(projectTitleDraft, projectDescDraft);
+                    }
+                  }}
+                  placeholder={t.untitledProject}
+                  className="w-full px-3 py-2 text-xs rounded-xl border outline-none font-medium transition-colors focus:border-blue-500"
+                  style={{
+                    backgroundColor: theme.ui.surface,
+                    borderColor: theme.ui.border,
+                    color: theme.ui.textPrimary,
+                  }}
+                />
+              </div>
+
+              {/* Project Description Field */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{t.projectDescLabel}</span>
+                </label>
+                <textarea
+                  value={projectDescDraft}
+                  onChange={(e) => setProjectDescDraft(e.target.value)}
+                  onBlur={() => {
+                    if (onUpdateProjectDetails) {
+                      onUpdateProjectDetails(projectTitleDraft, projectDescDraft);
+                    }
+                  }}
+                  rows={5}
+                  placeholder={t.projectDescPlaceholder}
+                  className="w-full px-3 py-2 text-xs rounded-xl border outline-none leading-relaxed resize-none transition-colors focus:border-blue-500"
+                  style={{
+                    backgroundColor: theme.ui.surface,
+                    borderColor: theme.ui.border,
+                    color: theme.ui.textPrimary,
+                  }}
+                />
+                <span className="text-[10px] opacity-60 block leading-tight">
+                  توضیحات و مستندات ثبت‌شده در صفحه خروجی گراف هوشمند، پرینت و فایل‌های پروژه نمایش داده می‌شوند.
                 </span>
               </div>
 
-              {/* Share link box */}
+              {/* Save Button */}
+              <button
+                type="button"
+                onClick={handleSaveProjectDetails}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-xs text-white shadow-xs transition-all hover:opacity-95 cursor-pointer"
+                style={{ backgroundColor: theme.ui.accent }}
+              >
+                <Check className="w-4 h-4" />
+                <span>{t.saveChanges}</span>
+              </button>
+
+              {/* Project Stats & Metadata Box */}
               <div
-                className="p-3 rounded-xl border mb-3 space-y-2"
+                className="p-3.5 rounded-xl border space-y-2.5 text-xs"
                 style={{
                   backgroundColor: theme.ui.surface,
                   borderColor: theme.ui.border,
                 }}
               >
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span>{t.roomCode}</span>
-                  <span className="font-mono text-[11px] opacity-60">{roomCode}</span>
+                <div className="font-bold text-[11px] opacity-75 uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>آمار و مشخصات دیاگرام</span>
                 </div>
-                <button
-                  onClick={handleCopyLink}
-                  className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs font-medium hover:opacity-90 transition-colors"
-                  style={{
-                    backgroundColor: theme.ui.cardBg,
-                    borderColor: theme.ui.border,
-                  }}
-                >
-                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedLink ? t.linkCopied : t.copyLink}</span>
-                </button>
-              </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="p-2 rounded-lg bg-black/5 dark:bg-white/5 flex flex-col">
+                    <span className="opacity-60 text-[10px]">تعداد صفحات</span>
+                    <span className="font-bold text-sm mt-0.5">{allPages?.length || 1}</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/5 dark:bg-white/5 flex flex-col">
+                    <span className="opacity-60 text-[10px]">کل گره‌ها</span>
+                    <span className="font-bold text-sm mt-0.5">{totalNodesCount || 0}</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/5 dark:bg-white/5 flex flex-col">
+                    <span className="opacity-60 text-[10px]">کل پیوندها</span>
+                    <span className="font-bold text-sm mt-0.5">{totalEdgesCount || 0}</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/5 dark:bg-white/5 flex flex-col">
+                    <span className="opacity-60 text-[10px]">نسخه‌های ثبت‌شده</span>
+                    <span className="font-bold text-sm mt-0.5">{versions.length}</span>
+                  </div>
+                </div>
 
-              {/* Online Users */}
-              <div className="mb-3">
-                <div className="text-[11px] font-bold opacity-60 mb-1.5">{t.activeCollaborators}</div>
-                <div className="space-y-1.5">
-                  {collaborators.map((user) => (
-                    <div
-                      key={user.id}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs"
-                      style={{
-                        backgroundColor: theme.ui.surface,
-                        borderColor: theme.ui.border,
-                      }}
+                {roomCode && (
+                  <div className="pt-1 border-t border-black/5 dark:border-white/5 flex items-center justify-between">
+                    <span className="text-[10px] opacity-60">شناسه پروژه:</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyLink}
+                      className="font-mono text-[10px] flex items-center gap-1 hover:text-blue-500 cursor-pointer"
+                      title="کپی شناسه پروژه"
                     >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: user.color }}
-                        />
-                        <span className="font-medium truncate max-w-[130px]">
-                          {user.name} {user.id === currentUserId ? `(${t.you})` : ''}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-emerald-600 font-medium">آنلاین</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Chat & Activity */}
-              <div className="flex-1 flex flex-col overflow-hidden border rounded-xl" style={{ borderColor: theme.ui.border }}>
-                <div className="p-2 border-b text-[11px] font-semibold opacity-70" style={{ borderColor: theme.ui.border, backgroundColor: theme.ui.surface }}>
-                  گفتگوی زنده تیم
-                </div>
-                <div className="flex-1 overflow-y-auto p-2.5 space-y-2 text-xs">
-                  {chatMessages.length === 0 ? (
-                    <div className="text-center opacity-40 text-[11px] py-6">
-                      پیامی در اتاق تبادل نشده است.
-                    </div>
-                  ) : (
-                    chatMessages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`p-2 rounded-lg leading-tight space-y-0.5 ${
-                          msg.userId === currentUserId
-                            ? 'bg-blue-50 dark:bg-blue-950/40 mr-4'
-                            : 'bg-slate-100 dark:bg-slate-800 ml-4'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-[10px] opacity-70">
-                          <span style={{ color: msg.userColor }} className="font-bold">
-                            {msg.userName}
-                          </span>
-                          <span>{new Date(msg.timestamp).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                        <p className="text-xs break-words">{msg.text}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <form onSubmit={handleSendChat} className="p-2 border-t flex gap-1.5" style={{ borderColor: theme.ui.border, backgroundColor: theme.ui.surface }}>
-                  <input
-                    type="text"
-                    placeholder={t.chatPlaceholder}
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    className="flex-1 px-2.5 py-1 text-xs rounded-lg border outline-none"
-                    style={{
-                      backgroundColor: theme.ui.cardBg,
-                      borderColor: theme.ui.border,
-                      color: theme.ui.textPrimary,
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    className="p-1.5 rounded-lg text-white hover:opacity-90 transition-opacity"
-                    style={{ backgroundColor: theme.ui.accent }}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                </form>
+                      <span>{roomCode.slice(0, 8)}...</span>
+                      <Copy className="w-3 h-3 opacity-60" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

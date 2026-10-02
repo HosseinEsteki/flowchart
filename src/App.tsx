@@ -182,7 +182,7 @@ export default function App() {
   // Modals
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'team'>('shapes');
+  const [sidebarTab, setSidebarTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'settings'>('shapes');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [collaborationModalOpen, setCollaborationModalOpen] = useState(false);
@@ -1219,6 +1219,14 @@ export default function App() {
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId) || null;
   const selectedEdge = project.edges.find((e) => e.id === selectedEdgeId) || null;
 
+  const handleUpdateProjectDetails = (title: string, description: string) => {
+    setProject((prev) => {
+      const updated = { ...prev, title, description };
+      triggerCloudSave(updated);
+      return updated;
+    });
+  };
+
   return (
     <div
       dir={lang === 'fa' ? 'rtl' : 'ltr'}
@@ -1305,6 +1313,11 @@ export default function App() {
           onSelectPage={handleSelectPage}
           onUpdatePageDescription={handleUpdatePageDescription}
           onOpenPrint={() => setPrintModalOpen(true)}
+          projectTitle={project.title}
+          projectDescription={project.description || ''}
+          onUpdateProjectDetails={handleUpdateProjectDetails}
+          totalNodesCount={project.nodes.length}
+          totalEdgesCount={project.edges.length}
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
