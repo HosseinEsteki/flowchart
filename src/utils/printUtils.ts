@@ -14,6 +14,8 @@ import { jsPDF } from 'jspdf';
 export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   colorMode: 'color',
   fontFamily: 'vazirmatn',
+  customFontName: '',
+  customFontUrl: '',
   descFontSize: 13,
   titleFontSize: 20,
   fontWeight: 'normal',
@@ -27,7 +29,20 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   showHeaderFooter: true,
   showDate: true,
   showBorders: true,
+  showNotes: true,
   targetPages: 'all',
+  documentTitle: '',
+  documentSubtitle: 'دپارتمان فرآیندها و سیستم‌ها',
+  organizationName: 'سازمان / شرکت',
+  diagramScale: 100,
+  diagramAlign: 'center',
+  diagramBorder: 'thin',
+  diagramBg: 'white',
+  footerNote: 'تمامی حقوق این سند محفوظ و طبق استانداردهای مدیریت فرآیند است.',
+  preset: 'formal',
+  accentColor: '#2563EB',
+  includeCoverPage: false,
+  coverSummary: '',
 };
 
 // Convert hex/named color to RGB
@@ -219,9 +234,15 @@ export function generatePageSvgMarkup(
       const lineHeight = node.fontSize * 1.3;
       const startY = node.height / 2 - ((lines.length - 1) * lineHeight) / 2 + node.fontSize * 0.35;
 
+      const align = node.textAlign || 'center';
+      const textAnchor = align === 'right' ? 'end' : align === 'left' ? 'start' : 'middle';
+      const textX = align === 'right' ? node.width - 12 : align === 'left' ? 12 : node.width / 2;
+      const fontFam = node.fontFamily || 'Vazirmatn, system-ui, sans-serif';
+      const fontSty = node.fontStyle || 'normal';
+
       const textSpans = lines
         .map((line, idx) => {
-          return `<tspan x="${node.width / 2}" y="${startY + idx * lineHeight}">${line}</tspan>`;
+          return `<tspan x="${textX}" y="${startY + idx * lineHeight}">${line}</tspan>`;
         })
         .join('');
 
@@ -229,7 +250,7 @@ export function generatePageSvgMarkup(
         <g transform="translate(${node.x}, ${node.y})" class="flowchart-node">
           <${shape.element} ${propsStr} />
           ${auxStr}
-          <text fill="${node.textColor}" font-size="${node.fontSize}" font-weight="${node.fontWeight || 'normal'}" font-family="Vazirmatn, system-ui, sans-serif" text-anchor="middle">
+          <text fill="${node.textColor}" font-size="${node.fontSize}" font-weight="${node.fontWeight || 'normal'}" font-style="${fontSty}" font-family="${fontFam}" text-anchor="${textAnchor}">
             ${textSpans}
           </text>
         </g>
@@ -253,7 +274,13 @@ export function generatePageSvgMarkup(
 }
 
 // Generate CSS font-family string
-export function getFontFamilyCss(family: PrintSettings['fontFamily']): string {
+export function getFontFamilyCss(
+  family: PrintSettings['fontFamily'],
+  customName?: string
+): string {
+  if (customName && customName.trim()) {
+    return `'${customName.trim()}', 'Vazirmatn', system-ui, -apple-system, sans-serif`;
+  }
   switch (family) {
     case 'vazirmatn':
       return "'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
@@ -264,8 +291,15 @@ export function getFontFamilyCss(family: PrintSettings['fontFamily']): string {
     case 'serif':
       return "'Times New Roman', 'B Nazanin', 'Mitra', Georgia, serif";
     case 'sans':
-    default:
       return "'Plus Jakarta Sans', 'Vazirmatn', system-ui, -apple-system, sans-serif";
+    case 'custom':
+      return customName && customName.trim()
+        ? `'${customName.trim()}', 'Vazirmatn', sans-serif`
+        : "'Vazirmatn', sans-serif";
+    default:
+      return family
+        ? `'${family}', 'Vazirmatn', system-ui, sans-serif`
+        : "'Vazirmatn', sans-serif";
   }
 }
 
@@ -287,7 +321,8 @@ export function generatePrintReportHtml(
   project: FlowchartProject,
   settings: PrintSettings
 ): string {
-  const fontFamilyCss = getFontFamilyCss(settings.fontFamily);
+  const customFontName = settings.customFontName?.trim();
+  const fontFamilyCss = getFontFamilyCss(settings.fontFamily, customFontName);
   const marginMm = getMarginMm(settings.marginSize);
   const pages =
     settings.targetPages === 'current'
@@ -310,13 +345,63 @@ export function generatePrintReportHtml(
     month: 'long',
     day: 'numeric',
   });
-  const dateEn = now.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
 
   const totalPages = pages.length;
+  const docTitle = settings.documentTitle || project.title || 'فلوچارت فرآیند';
+  const orgName = settings.organizationName || 'سازمان / دپارتمان سیستم‌ها';
+  const accentColor = settings.accentColor || '#2563EB';
+
+  // Custom Font Face injection if custom URL provided
+  const customFontFaceCss =
+    settings.customFontUrl && settings.customFontUrl.trim()
+      ? `
+    @font-face {
+      font-family: '${customFontName || 'CustomPrintFont'}';
+      src: url('${settings.customFontUrl.trim()}');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+  `
+      : '';
+
+  // Optional Cover Page HTML
+  const coverPageHtml = settings.includeCoverPage
+    ? `
+      <div class="print-page sheet cover-sheet">
+        <div class="cover-top-bar" style="border-top: 6px solid ${accentColor};"></div>
+        <div class="cover-content">
+          <div class="cover-org-badge" style="color: ${accentColor};">${orgName}</div>
+          <h1 class="cover-title">${docTitle}</h1>
+          ${settings.documentSubtitle ? `<p class="cover-subtitle">${settings.documentSubtitle}</p>` : ''}
+          <div class="cover-meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">تاریخ تدوین:</span>
+              <span class="meta-value">${dateFa}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">تعداد صفحات دیاگرام:</span>
+              <span class="meta-value font-mono">${totalPages} صفحه</span>
+            </div>
+          </div>
+          ${
+            settings.coverSummary || project.description
+              ? `
+            <div class="cover-summary-box">
+              <div class="summary-label">خلاصه مدیریتی و هدف فرآیند:</div>
+              <p class="summary-text">${settings.coverSummary || project.description}</p>
+            </div>
+          `
+              : ''
+          }
+        </div>
+        <div class="cover-footer">
+          <div>${settings.footerNote || 'کلیه حقوق این سند فرآیندی محفوظ است.'}</div>
+          <div class="font-mono">صفحه جلد / Cover</div>
+        </div>
+      </div>
+    `
+    : '';
 
   const pagesHtml = pages
     .map((page, index) => {
@@ -324,6 +409,8 @@ export function generatePrintReportHtml(
       const { svg } = generatePageSvgMarkup(page, settings.colorMode);
       const hasDescription = Boolean(page.description && page.description.trim());
       const descText = (page.description || '').trim();
+      const hasNotes = Boolean(settings.showNotes !== false && page.notes && page.notes.trim());
+      const notesText = (page.notes || '').trim();
 
       const descBoxHtml = hasDescription
         ? `
@@ -331,7 +418,7 @@ export function generatePrintReportHtml(
             settings.descPosition === 'above' ? 'bottom' : 'top'
           }: ${settings.spacing}px;">
             <div class="desc-header">
-              <span class="desc-tag">توضیحات و مستندات فلوچارت</span>
+              <span class="desc-tag" style="color: ${accentColor};">شرح و یادداشت‌های فرآیند</span>
               <span class="desc-subtitle">${page.name}</span>
             </div>
             <div class="desc-content" style="font-size: ${
@@ -348,7 +435,59 @@ export function generatePrintReportHtml(
         `
         : '';
 
-      const isAppendix = settings.descPosition === 'appendix' && hasDescription;
+      const notesBoxHtml = hasNotes
+        ? `
+          <div class="page-notes-box" style="margin-${
+            settings.descPosition === 'above' ? 'bottom' : 'top'
+          }: ${Math.max(8, settings.spacing * 0.4)}px;">
+            <div class="notes-header">
+              <span class="notes-tag">💡 نکات و ملاحظات</span>
+              <span class="notes-subtitle">${page.name}</span>
+            </div>
+            <div class="notes-content" style="font-size: ${
+              Math.max(11, settings.descFontSize - 1)
+            }px; font-weight: ${settings.fontWeight}; text-align: ${
+            settings.textAlign
+          };">
+              ${notesText
+                .split('\n')
+                .map((line) => {
+                  const trimmed = line.trim();
+                  if (!trimmed) return '<br/>';
+                  const bullet = trimmed.startsWith('•') || trimmed.startsWith('-') ? '' : '• ';
+                  return `<p>${bullet}${trimmed}</p>`;
+                })
+                .join('')}
+            </div>
+          </div>
+        `
+        : '';
+
+      const isAppendix = settings.descPosition === 'appendix' && (hasDescription || hasNotes);
+
+      // Diagram border class
+      const borderClass =
+        settings.diagramBorder === 'none'
+          ? 'border-none'
+          : settings.diagramBorder === 'double'
+          ? 'border-double'
+          : settings.diagramBorder === 'dashed'
+          ? 'border-dashed'
+          : settings.diagramBorder === 'shadow'
+          ? 'border-shadow'
+          : 'border-thin';
+
+      const bgClass =
+        settings.diagramBg === 'subtle'
+          ? 'bg-subtle'
+          : settings.diagramBg === 'grid'
+          ? 'bg-grid'
+          : 'bg-white';
+
+      const scaleStyle =
+        settings.diagramScale && settings.diagramScale !== 100
+          ? `transform: scale(${settings.diagramScale / 100}); transform-origin: center center;`
+          : '';
 
       return `
         <!-- DIAGRAM PAGE ${pageNum} -->
@@ -358,14 +497,15 @@ export function generatePrintReportHtml(
               ? `
             <header class="sheet-header">
               <div class="header-project-title">
-                <span class="brand-badge">FlowCraft</span>
-                <span class="project-title" style="font-size: ${settings.titleFontSize}px;">${
-                  project.title || 'فلوچارت'
-                }</span>
+                <span class="brand-badge" style="background: ${accentColor};">${orgName}</span>
+                <div>
+                  <div class="project-title" style="font-size: ${settings.titleFontSize}px;">${docTitle}</div>
+                  ${settings.documentSubtitle ? `<div class="project-subtitle">${settings.documentSubtitle}</div>` : ''}
+                </div>
               </div>
               <div class="header-meta">
                 <span class="page-name-badge">${page.name}</span>
-                ${settings.showDate ? `<span class="date-badge">${dateFa} (${dateEn})</span>` : ''}
+                ${settings.showDate ? `<span class="date-badge">${dateFa}</span>` : ''}
               </div>
             </header>
           `
@@ -373,13 +513,15 @@ export function generatePrintReportHtml(
           }
 
           <div class="sheet-body">
-            ${settings.descPosition === 'above' && !isAppendix ? descBoxHtml : ''}
+            ${settings.descPosition === 'above' && !isAppendix ? `${descBoxHtml}${notesBoxHtml}` : ''}
 
-            <div class="diagram-wrapper ${settings.showBorders ? 'with-border' : ''}">
-              ${svg}
+            <div class="diagram-wrapper ${settings.showBorders ? borderClass : ''} ${bgClass}">
+              <div class="diagram-inner" style="${scaleStyle}">
+                ${svg}
+              </div>
             </div>
 
-            ${settings.descPosition === 'below' && !isAppendix ? descBoxHtml : ''}
+            ${settings.descPosition === 'below' && !isAppendix ? `${descBoxHtml}${notesBoxHtml}` : ''}
           </div>
 
           ${
@@ -387,21 +529,21 @@ export function generatePrintReportHtml(
               ? `
             <footer class="sheet-footer">
               <div class="footer-stats">
-                <span>تعداد نمادها: ${page.nodes.length}</span>
+                <span>${settings.footerNote || 'سند مدیریت فرآیند'}</span>
                 <span>•</span>
-                <span>تعداد اتصالات: ${page.edges.length}</span>
+                <span>تعداد گره‌ها: ${page.nodes.length}</span>
                 <span>•</span>
                 <span>حالت چاپ: ${
                   settings.colorMode === 'color'
                     ? 'رنگی کامل'
                     : settings.colorMode === 'grayscale'
-                    ? 'خاکستری (Grayscale)'
-                    : 'سیاه و سفید خطی'
+                    ? 'خاکستری'
+                    : 'سیاه و سفید اقتصادی'
                 }</span>
               </div>
               ${
                 settings.showPageNumbers
-                  ? `<div class="footer-page-num">صفحه ${pageNum} از ${
+                  ? `<div class="footer-page-num font-mono">صفحه ${pageNum} از ${
                       isAppendix ? totalPages * 2 : totalPages
                     }</div>`
                   : ''
@@ -419,11 +561,11 @@ export function generatePrintReportHtml(
           <div class="print-page sheet appendix-page">
             <header class="sheet-header">
               <div class="header-project-title">
-                <span class="brand-badge">FlowCraft</span>
-                <span class="project-title">${project.title || 'فلوچارت'} - ضمیمه مستندات</span>
+                <span class="brand-badge" style="background: ${accentColor};">${orgName}</span>
+                <span class="project-title">${docTitle} - ضمیمه مستندات</span>
               </div>
               <div class="header-meta">
-                <span class="page-name-badge">${page.name} (ضمیمه)</span>
+                <span class="page-name-badge">${page.name} (پیوست)</span>
               </div>
             </header>
 
@@ -438,6 +580,7 @@ export function generatePrintReportHtml(
                     .map((line) => (line.trim() ? `<p>${line}</p>` : '<br/>'))
                     .join('')}
                 </div>
+                ${notesBoxHtml ? `<div style="margin-top: 14px;">${notesBoxHtml}</div>` : ''}
               </div>
             </div>
 
@@ -462,11 +605,13 @@ export function generatePrintReportHtml(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${project.title || 'چاپ فلوچارت'} - FlowCraft Print</title>
+  <title>${docTitle} - FlowCraft Print</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Vazirmatn:wght@400;500;600;700&family=Shabnam:wght@400;700&display=swap" rel="stylesheet">
   <style>
+    ${customFontFaceCss}
+
     @page {
       size: ${settings.paperSize.toUpperCase()} ${settings.orientation};
       margin: ${marginMm}mm;
@@ -480,7 +625,7 @@ export function generatePrintReportHtml(
 
     body {
       font-family: ${fontFamilyCss};
-      background-color: #f1f5f9;
+      background-color: #0f172a;
       color: #0f172a;
       -webkit-font-smoothing: antialiased;
       line-height: 1.6;
@@ -496,7 +641,7 @@ export function generatePrintReportHtml(
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
     }
 
     .toolbar-title {
@@ -504,7 +649,7 @@ export function generatePrintReportHtml(
       font-weight: 700;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
 
     .toolbar-actions {
@@ -514,7 +659,7 @@ export function generatePrintReportHtml(
 
     .btn {
       font-family: inherit;
-      padding: 8px 16px;
+      padding: 8px 18px;
       border-radius: 8px;
       font-size: 13px;
       font-weight: 600;
@@ -544,8 +689,8 @@ export function generatePrintReportHtml(
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 24px 0 48px;
-      gap: 32px;
+      padding: 32px 0 64px;
+      gap: 36px;
     }
 
     .sheet {
@@ -553,8 +698,8 @@ export function generatePrintReportHtml(
       width: 100%;
       max-width: ${settings.orientation === 'landscape' ? '1120px' : '820px'};
       min-height: ${settings.orientation === 'landscape' ? '720px' : '1080px'};
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-      padding: 24px 32px;
+      box-shadow: 0 14px 35px -5px rgba(0, 0, 0, 0.3);
+      padding: 28px 36px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -562,6 +707,7 @@ export function generatePrintReportHtml(
       page-break-after: always;
       break-after: page;
       position: relative;
+      overflow: hidden;
     }
 
     .sheet:last-child {
@@ -576,27 +722,35 @@ export function generatePrintReportHtml(
       border-bottom: 2px solid #e2e8f0;
       padding-bottom: 12px;
       margin-bottom: 18px;
+      position: relative;
+      z-index: 2;
     }
 
     .header-project-title {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .brand-badge {
       font-size: 11px;
       font-weight: 800;
-      background: #0f172a;
       color: #ffffff;
-      padding: 3px 8px;
-      border-radius: 4px;
+      padding: 4px 10px;
+      border-radius: 6px;
       letter-spacing: 0.5px;
     }
 
     .project-title {
       font-weight: 700;
       color: #0f172a;
+      line-height: 1.2;
+    }
+
+    .project-subtitle {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 2px;
     }
 
     .header-meta {
@@ -605,6 +759,16 @@ export function generatePrintReportHtml(
       gap: 8px;
       font-size: 12px;
       color: #64748b;
+    }
+
+    .doc-code-pill {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #334155;
     }
 
     .page-name-badge {
@@ -626,6 +790,8 @@ export function generatePrintReportHtml(
       flex-direction: column;
       justify-content: center;
       width: 100%;
+      position: relative;
+      z-index: 2;
     }
 
     .diagram-wrapper {
@@ -633,36 +799,71 @@ export function generatePrintReportHtml(
       display: flex;
       justify-content: center;
       align-items: center;
-      background: #ffffff;
       overflow: hidden;
+      margin: 8px 0;
     }
 
-    .diagram-wrapper.with-border {
+    .diagram-wrapper.border-thin {
       border: 1px solid #cbd5e1;
       border-radius: 8px;
       padding: 12px;
     }
 
+    .diagram-wrapper.border-double {
+      border: 3px double #94a3b8;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .diagram-wrapper.border-dashed {
+      border: 1.5px dashed #94a3b8;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .diagram-wrapper.border-shadow {
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .diagram-wrapper.bg-white { background: #ffffff; }
+    .diagram-wrapper.bg-subtle { background: #f8fafc; }
+    .diagram-wrapper.bg-grid {
+      background-color: #ffffff;
+      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+
+    .diagram-inner {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
     .diagram-wrapper svg {
       width: 100%;
       height: auto;
-      max-height: ${settings.orientation === 'landscape' ? '520px' : '760px'};
+      max-height: ${settings.orientation === 'landscape' ? '460px' : '680px'};
       object-fit: contain;
     }
 
     .page-description-box {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
-      border-right: 4px solid #2563eb;
+      border-right: 4px solid ${accentColor};
       border-radius: 8px;
-      padding: 14px 18px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
     }
 
     .desc-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       padding-bottom: 4px;
       border-bottom: 1px dashed #cbd5e1;
     }
@@ -670,7 +871,6 @@ export function generatePrintReportHtml(
     .desc-tag {
       font-size: 11px;
       font-weight: 700;
-      color: #2563eb;
       text-transform: uppercase;
     }
 
@@ -680,27 +880,135 @@ export function generatePrintReportHtml(
     }
 
     .desc-content p {
-      margin-bottom: 6px;
-      line-height: 1.7;
+      margin-bottom: 4px;
+      line-height: 1.6;
       color: #1e293b;
     }
 
-    .desc-content p:last-child {
-      margin-bottom: 0;
+    .page-notes-box {
+      background: #fffbeb;
+      border: 1px solid #fef3c7;
+      border-right: 4px solid #d97706;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
     }
 
-    .appendix-content {
-      padding: 20px 0;
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px dashed #fde68a;
     }
 
-    .appendix-title {
-      font-size: 18px;
+    .notes-tag {
+      font-size: 11px;
       font-weight: 700;
+      color: #b45309;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .notes-subtitle {
+      font-size: 11px;
+      color: #92400e;
+    }
+
+    .notes-content p {
+      margin-bottom: 3px;
+      line-height: 1.55;
+      color: #78350f;
+    }
+
+    /* Cover Page */
+    .cover-sheet {
+      justify-content: space-between;
+      padding: 48px;
+      text-align: center;
+    }
+
+    .cover-top-bar {
+      margin-bottom: 32px;
+    }
+
+    .cover-org-badge {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 1px;
       margin-bottom: 16px;
+      text-transform: uppercase;
+    }
+
+    .cover-title {
+      font-size: 32px;
+      font-weight: 800;
       color: #0f172a;
-      border-bottom: 2px solid #2563eb;
-      padding-bottom: 6px;
-      display: inline-block;
+      line-height: 1.3;
+      margin-bottom: 8px;
+    }
+
+    .cover-subtitle {
+      font-size: 16px;
+      color: #64748b;
+      margin-bottom: 32px;
+    }
+
+    .cover-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      max-w: 480px;
+      margin: 0 auto 32px;
+      text-align: right;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+
+    .meta-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .meta-label { color: #64748b; }
+    .meta-value { font-weight: 700; color: #0f172a; }
+
+    .cover-summary-box {
+      max-w: 540px;
+      margin: 0 auto;
+      text-align: right;
+      background: #ffffff;
+      border-right: 4px solid ${accentColor};
+      padding: 12px 18px;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+
+    .summary-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: ${accentColor};
+      margin-bottom: 4px;
+    }
+
+    .summary-text {
+      font-size: 12px;
+      color: #334155;
+      line-height: 1.7;
+    }
+
+    .cover-footer {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 14px;
+      font-size: 11px;
+      color: #64748b;
     }
 
     .sheet-footer {
@@ -709,19 +1017,21 @@ export function generatePrintReportHtml(
       align-items: center;
       border-top: 1px solid #e2e8f0;
       padding-top: 10px;
-      margin-top: 18px;
-      font-size: 11px;
+      margin-top: 14px;
+      font-size: 10px;
       color: #64748b;
+      position: relative;
+      z-index: 2;
     }
 
     .footer-stats {
       display: flex;
       gap: 8px;
+      align-items: center;
     }
 
     .footer-page-num {
       font-weight: 600;
-      font-family: monospace;
     }
 
     /* Print media overrides */
@@ -750,13 +1060,17 @@ export function generatePrintReportHtml(
         background: #ffffff !important;
         border-color: #64748b !important;
       }
+      .page-notes-box {
+        background: #ffffff !important;
+        border-color: #d97706 !important;
+      }
     }
   </style>
 </head>
 <body>
   <div class="no-print-toolbar">
     <div class="toolbar-title">
-      <span>🖨️ آماده پرینت: ${project.title || 'فلوچارت'}</span>
+      <span>🖨️ آماده پرینت: ${docTitle}</span>
       <span style="font-size: 12px; opacity: 0.75;">(${
         settings.colorMode === 'color'
           ? 'رنگی'
@@ -774,10 +1088,52 @@ export function generatePrintReportHtml(
   </div>
 
   <div class="print-container">
+    ${coverPageHtml}
     ${pagesHtml}
   </div>
 </body>
 </html>`;
+}
+
+// Export high resolution PNG image of a flowchart page
+export async function exportHighResPng(
+  page: FlowchartPage,
+  settings: PrintSettings,
+  projectTitle: string
+): Promise<void> {
+  const { svg, width, height } = generatePageSvgMarkup(page, settings.colorMode);
+  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Failed to load SVG for PNG'));
+    img.src = url;
+  });
+
+  const canvas = document.createElement('canvas');
+  // High DPI 3x resolution
+  const scale = 3;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Background
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  URL.revokeObjectURL(url);
+
+  const pngUrl = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = pngUrl;
+  a.download = `${projectTitle || 'flowchart'}-${page.name}-300dpi.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // Trigger direct browser print dialog via hidden iframe
@@ -880,11 +1236,12 @@ export async function exportMultiPagePdf(
 
     // Header
     let currentY = margin;
+    const docTitle = settings.documentTitle || project.title || 'FlowCraft Diagram';
     if (settings.showHeaderFooter) {
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(14);
       pdf.setTextColor(15, 23, 42);
-      pdf.text(project.title || 'FlowCraft Diagram', margin, currentY + 5);
+      pdf.text(docTitle, margin, currentY + 5);
 
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
@@ -899,8 +1256,9 @@ export async function exportMultiPagePdf(
 
     // Available space for diagram
     const footerHeight = settings.showHeaderFooter ? 12 : 0;
-    const hasNotes = Boolean(page.description && page.description.trim());
-    const notesHeightEstimate = hasNotes ? 25 : 0;
+    const hasDesc = Boolean(page.description && page.description.trim());
+    const hasPageNotes = Boolean(settings.showNotes !== false && page.notes && page.notes.trim());
+    const notesHeightEstimate = (hasDesc ? 18 : 0) + (hasPageNotes ? 18 : 0);
 
     const availWidth = pageWidth - margin * 2;
     const availHeight = pageHeight - currentY - margin - footerHeight - notesHeightEstimate;
@@ -925,14 +1283,24 @@ export async function exportMultiPagePdf(
     pdf.addImage(imgData, 'JPEG', posX, posY, renderW, renderH);
 
     // Description text if present
-    if (hasNotes && settings.descPosition !== 'appendix') {
-      const noteY = posY + renderH + 8;
+    let textCursorY = posY + renderH + 7;
+    if (hasDesc && settings.descPosition !== 'appendix') {
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(settings.descFontSize * 0.75);
+      pdf.setFontSize(settings.descFontSize * 0.72);
       pdf.setTextColor(30, 41, 59);
 
       const splitText = pdf.splitTextToSize(page.description || '', availWidth);
-      pdf.text(splitText, margin, noteY);
+      pdf.text(splitText, margin, textCursorY);
+      textCursorY += splitText.length * 4.5 + 4;
+    }
+
+    // Key Notes text if present
+    if (hasPageNotes && settings.descPosition !== 'appendix') {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(Math.max(7.5, settings.descFontSize * 0.65));
+      pdf.setTextColor(180, 83, 9);
+      const splitNotes = pdf.splitTextToSize(`Notes: ${page.notes || ''}`, availWidth);
+      pdf.text(splitNotes, margin, textCursorY);
     }
 
     // Footer

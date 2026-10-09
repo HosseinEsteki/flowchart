@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
 import {
   FlowchartProject,
+  FlowchartPage,
   PrintSettings,
   PrintColorMode,
-  PrintFontFamily,
   PrintPaperSize,
   PrintOrientation,
   PrintDescPosition,
@@ -18,12 +18,12 @@ import {
   exportMultiPagePdf,
   generatePrintReportHtml,
   getFontFamilyCss,
+  exportHighResPng,
 } from '../utils/printUtils';
 import {
   X,
   Printer,
   FileDown,
-  Palette,
   Type,
   Layout,
   Sliders,
@@ -34,6 +34,19 @@ import {
   FileCode,
   Sparkles,
   Layers,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
+  FileText,
+  Lightbulb,
+  Save,
+  Download,
+  BookOpen,
+  CheckCheck,
+  Copy,
+  Upload,
+  Plus,
 } from 'lucide-react';
 
 interface PrintModalProps {
@@ -42,7 +55,11 @@ interface PrintModalProps {
   project: FlowchartProject;
   theme: ColorTheme;
   t: TranslationDictionary;
+  onUpdateProject?: (updated: FlowchartProject) => void;
 }
+
+type EditorTab = 'presets' | 'typography' | 'blocks' | 'diagram' | 'paper';
+type ViewMode = 'sheet' | 'html';
 
 export const PrintModal: React.FC<PrintModalProps> = ({
   isOpen,
@@ -50,15 +67,41 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   project,
   theme,
   t,
+  onUpdateProject,
 }) => {
-  const [settings, setSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
-  const [activeTab, setActiveTab] = useState<'color' | 'font' | 'spacing' | 'page'>('color');
-  const [previewPageIndex, setPreviewPageIndex] = useState(0);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const [isDownloadingHtml, setIsDownloadingHtml] = useState(false);
+  // Main settings state with project defaults
+  const [settings, setSettings] = useState<PrintSettings>(() => ({
+    ...DEFAULT_PRINT_SETTINGS,
+    documentTitle: project.title || 'فلوچارت فرآیند',
+    organizationName: 'سازمان / دپارتمان فرآیندها',
+  }));
 
-  // Available pages based on setting
-  const availablePages = useMemo(() => {
+  const [activeTab, setActiveTab] = useState<EditorTab>('presets');
+  const [viewMode, setViewMode] = useState<ViewMode>('sheet');
+  const [previewPageIndex, setPreviewPageIndex] = useState(0);
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
+  const [showMarginGuides, setShowMarginGuides] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Custom Font uploading state
+  const [uploadedFontFileName, setUploadedFontFileName] = useState<string>('');
+  const [manualFontInput, setManualFontInput] = useState<string>('');
+  const [manualFontUrlInput, setManualFontUrlInput] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Export states
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingPng, setIsExportingPng] = useState(false);
+  const [isDownloadingHtml, setIsDownloadingHtml] = useState(false);
+  const [isHtmlCopied, setIsHtmlCopied] = useState(false);
+  const [isSavedToProject, setIsSavedToProject] = useState(false);
+
+  // Active editable description and notes state (synced with current page)
+  const [localPageDesc, setLocalPageDesc] = useState<string>('');
+  const [localPageNotes, setLocalPageNotes] = useState<string>('');
+
+  // Available flowchart pages
+  const availablePages = useMemo<FlowchartPage[]>(() => {
     if (settings.targetPages === 'current') {
       const active = (project.pages || []).find((p) => p.id === project.activePageId);
       return active ? [active] : project.pages || [];
@@ -69,16 +112,69 @@ export const PrintModal: React.FC<PrintModalProps> = ({
           {
             id: 'p1',
             name: 'صفحه اصلی',
-            description: project.description,
-            nodes: project.nodes,
-            edges: project.edges,
+            description: project.description || '',
+            notes: project.notes || '',
+            nodes: project.nodes || [],
+            edges: project.edges || [],
           },
         ];
   }, [project, settings.targetPages]);
 
-  // Ensure preview page index is valid
-  const currentPageIndex = Math.min(previewPageIndex, Math.max(0, availablePages.length - 1));
-  const activePreviewPage = availablePages[currentPageIndex] || availablePages[0];
+  // Current page validation
+  const safePageIndex = Math.min(previewPageIndex, Math.max(0, availablePages.length - 1));
+  const activePreviewPage = availablePages[safePageIndex] || availablePages[0];
+
+  // Sync local description and notes when switching pages
+  useEffect(() => {
+    if (activePreviewPage) {
+      setLocalPageDesc(activePreviewPage.description || '');
+      setLocalPageNotes(activePreviewPage.notes || '');
+    }
+  }, [activePreviewPage?.id, activePreviewPage?.description, activePreviewPage?.notes]);
+
+  // Handle custom font file upload (.woff2, .woff, .ttf, .otf)
+  const handleFontFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\u0600-\u06FF]/g, '_');
+    const reader = new FileReader();
+
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result as string;
+      if (!dataUrl) return;
+
+      try {
+        const fontFace = new FontFace(baseName, `url(${dataUrl})`);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+
+        setUploadedFontFileName(file.name);
+        setSettings((prev) => ({
+          ...prev,
+          fontFamily: 'custom',
+          customFontName: baseName,
+          customFontUrl: dataUrl,
+        }));
+      } catch (err) {
+        console.error('Failed to load font file:', err);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  // Handle manual font name submit
+  const handleApplyManualFontName = () => {
+    if (!manualFontInput.trim()) return;
+    const fontName = manualFontInput.trim();
+    setSettings((prev) => ({
+      ...prev,
+      fontFamily: 'custom',
+      customFontName: fontName,
+      customFontUrl: manualFontUrlInput.trim() || prev.customFontUrl,
+    }));
+  };
 
   // Generate SVG markup for current preview page
   const pageSvgResult = useMemo(() => {
@@ -88,14 +184,118 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Apply predefined layout presets
+  const applyPreset = (preset: NonNullable<PrintSettings['preset']>) => {
+    switch (preset) {
+      case 'formal':
+        setSettings((s) => ({
+          ...s,
+          preset: 'formal',
+          showHeaderFooter: true,
+          showDate: true,
+          showBorders: true,
+          diagramBorder: 'thin',
+          diagramBg: 'white',
+          colorMode: 'color',
+          accentColor: '#1E40AF',
+          descPosition: 'below',
+        }));
+        break;
+      case 'iso':
+        setSettings((s) => ({
+          ...s,
+          preset: 'iso',
+          showHeaderFooter: true,
+          showDate: true,
+          showBorders: true,
+          diagramBorder: 'double',
+          diagramBg: 'white',
+          colorMode: 'color',
+          accentColor: '#0F766E',
+          descPosition: 'above',
+        }));
+        break;
+      case 'modern':
+        setSettings((s) => ({
+          ...s,
+          preset: 'modern',
+          showHeaderFooter: true,
+          showDate: true,
+          showBorders: true,
+          diagramBorder: 'shadow',
+          diagramBg: 'subtle',
+          colorMode: 'color',
+          accentColor: '#6366F1',
+          descPosition: 'below',
+        }));
+        break;
+      case 'minimal':
+        setSettings((s) => ({
+          ...s,
+          preset: 'minimal',
+          showHeaderFooter: true,
+          showDate: true,
+          showBorders: true,
+          diagramBorder: 'thin',
+          diagramBg: 'white',
+          colorMode: 'monochrome',
+          accentColor: '#000000',
+          descPosition: 'below',
+        }));
+        break;
+      case 'diagramOnly':
+        setSettings((s) => ({
+          ...s,
+          preset: 'diagramOnly',
+          showHeaderFooter: false,
+          showDate: false,
+          showBorders: false,
+          diagramBorder: 'none',
+          diagramBg: 'white',
+          diagramScale: 110,
+          colorMode: 'color',
+        }));
+        break;
+    }
+  };
+
+  // Real-time project snapshot with live description and notes edits
+  const projectWithLiveEdits = useMemo<FlowchartProject>(() => {
+    const updatedPages = (project.pages || []).map((p) =>
+      p.id === activePreviewPage?.id
+        ? { ...p, description: localPageDesc, notes: localPageNotes }
+        : p
+    );
+    return {
+      ...project,
+      title: settings.documentTitle || project.title,
+      description: localPageDesc || project.description,
+      notes: localPageNotes || project.notes,
+      pages:
+        updatedPages.length > 0
+          ? updatedPages
+          : [
+              {
+                id: activePreviewPage?.id || 'p1',
+                name: activePreviewPage?.name || 'صفحه اصلی',
+                description: localPageDesc || project.description || '',
+                notes: localPageNotes || project.notes || '',
+                nodes: activePreviewPage?.nodes || project.nodes || [],
+                edges: activePreviewPage?.edges || project.edges || [],
+              },
+            ],
+    };
+  }, [project, activePreviewPage, localPageDesc, localPageNotes, settings.documentTitle]);
+
+  // Actions
   const handlePrint = () => {
-    triggerPrintDialog(project, settings);
+    triggerPrintDialog(projectWithLiveEdits, settings);
   };
 
   const handleDownloadPdf = async () => {
     setIsExportingPdf(true);
     try {
-      await exportMultiPagePdf(project, settings);
+      await exportMultiPagePdf(projectWithLiveEdits, settings);
     } catch (err) {
       console.error('PDF export error:', err);
     } finally {
@@ -103,15 +303,32 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     }
   };
 
+  const handleDownloadPng = async () => {
+    if (!activePreviewPage) return;
+    setIsExportingPng(true);
+    try {
+      const pageToExport = {
+        ...activePreviewPage,
+        description: localPageDesc,
+        notes: localPageNotes,
+      };
+      await exportHighResPng(pageToExport, settings, settings.documentTitle || project.title);
+    } catch (err) {
+      console.error('PNG export error:', err);
+    } finally {
+      setIsExportingPng(false);
+    }
+  };
+
   const handleDownloadHtml = () => {
     setIsDownloadingHtml(true);
     try {
-      const html = generatePrintReportHtml(project, settings);
+      const html = generatePrintReportHtml(projectWithLiveEdits, settings);
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${project.title || 'flowchart'}-print-ready.html`;
+      a.download = `${settings.documentTitle || project.title || 'flowchart'}-print-ready.html`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -121,36 +338,177 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     }
   };
 
-  const fontFamilyCss = getFontFamilyCss(settings.fontFamily);
+  const handleCopyHtml = () => {
+    const html = generatePrintReportHtml(projectWithLiveEdits, settings);
+    navigator.clipboard.writeText(html);
+    setIsHtmlCopied(true);
+    setTimeout(() => setIsHtmlCopied(false), 2000);
+  };
+
+  // Sync edits back into flowchart project
+  const handleSaveToProject = () => {
+    if (!onUpdateProject) return;
+
+    const updatedPages = (project.pages || []).map((p) =>
+      p.id === activePreviewPage.id
+        ? { ...p, description: localPageDesc, notes: localPageNotes }
+        : p
+    );
+
+    const updatedProject: FlowchartProject = {
+      ...project,
+      title: settings.documentTitle || project.title,
+      description: localPageDesc || project.description,
+      notes: localPageNotes || project.notes,
+      pages: updatedPages.length > 0 ? updatedPages : project.pages,
+    };
+
+    onUpdateProject(updatedProject);
+    setIsSavedToProject(true);
+    setTimeout(() => setIsSavedToProject(false), 2500);
+  };
+
+  const fontFamilyCss = getFontFamilyCss(settings.fontFamily, settings.customFontName);
+  const accentColor = settings.accentColor || '#2563EB';
+  const effectiveTitle = settings.documentTitle || project.title || 'فلوچارت فرآیند';
+  const effectiveOrg = settings.organizationName || 'سازمان / دپارتمان فرآیندها';
+
+  // Diagram border CSS for live preview
+  const getDiagramBorderClass = () => {
+    if (!settings.showBorders) return '';
+    switch (settings.diagramBorder) {
+      case 'double':
+        return 'border-4 border-double border-slate-400';
+      case 'dashed':
+        return 'border border-dashed border-slate-400';
+      case 'shadow':
+        return 'border border-slate-200 shadow-md';
+      case 'none':
+        return '';
+      case 'thin':
+      default:
+        return 'border border-slate-300';
+    }
+  };
+
+  // Diagram background CSS for live preview
+  const getDiagramBgClass = () => {
+    switch (settings.diagramBg) {
+      case 'subtle':
+        return 'bg-slate-50';
+      case 'grid':
+        return 'bg-white bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]';
+      case 'white':
+      default:
+        return 'bg-white';
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-xs select-none animate-in fade-in">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs select-none transition-all ${
+        isFullscreen ? 'p-0' : 'p-2 sm:p-4'
+      }`}
+    >
       <div
-        className="w-full max-w-6xl h-[92vh] max-h-[850px] rounded-2xl shadow-2xl border flex flex-col overflow-hidden"
+        className={`w-full rounded-2xl shadow-2xl border flex flex-col overflow-hidden transition-all ${
+          isFullscreen ? 'h-full rounded-none border-none' : 'h-[95vh] max-h-[920px] max-w-[1440px]'
+        }`}
         style={{
           backgroundColor: theme.ui.cardBg,
           borderColor: theme.ui.border,
           color: theme.ui.textPrimary,
         }}
       >
-        {/* Modal Top Bar */}
+        {/* TOP BAR: Studio Navigation & Primary Actions */}
         <div
-          className="h-14 border-b px-5 flex items-center justify-between shrink-0"
+          className="h-14 border-b px-4 sm:px-6 flex items-center justify-between shrink-0 gap-3"
           style={{ borderColor: theme.ui.border }}
         >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-500 flex items-center justify-center">
+          {/* Brand & Document Name */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs"
+              style={{ backgroundColor: accentColor, color: '#ffffff' }}
+            >
               <Printer className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="font-bold text-sm sm:text-base">{t.printReadyTitle}</h3>
-              <p className="text-[11px] opacity-60">
-                پروژه: <strong>{project.title || 'فلوچارت'}</strong> • {availablePages.length} صفحه
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-sm sm:text-base truncate">
+                  استودیوی ویرایش و چاپ
+                </h2>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 hidden sm:inline-block">
+                  Print Studio
+                </span>
+              </div>
+              <p className="text-[11px] opacity-60 truncate">
+                {effectiveTitle} • {availablePages.length} صفحه • قطع {settings.paperSize.toUpperCase()}{' '}
+                {settings.orientation === 'landscape' ? 'افقی' : 'عمودی'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Center Mode Switcher */}
+          <div className="hidden lg:flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-semibold">
+            <button
+              onClick={() => setViewMode('sheet')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                viewMode === 'sheet'
+                  ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                  : 'opacity-70 hover:opacity-100'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>پیش‌نمایش زنده صفحه</span>
+            </button>
+            <button
+              onClick={() => setViewMode('html')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                viewMode === 'html'
+                  ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                  : 'opacity-70 hover:opacity-100'
+              }`}
+            >
+              <FileCode className="w-3.5 h-3.5" />
+              <span>کد HTML چاپ</span>
+            </button>
+          </div>
+
+          {/* Right Top Actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            {onUpdateProject && (
+              <button
+                onClick={handleSaveToProject}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+                style={{ borderColor: theme.ui.border }}
+                title="ذخیره عنوان و یادداشت‌های ویرایش شده در فلوچارت"
+              >
+                {isSavedToProject ? (
+                  <>
+                    <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-emerald-600 font-bold">ذخیره شد!</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5 text-blue-500" />
+                    <span>ذخیره در پروژه</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              onClick={handleDownloadPdf}
+              disabled={isExportingPdf}
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+              style={{ borderColor: theme.ui.border }}
+              title="دانلود فایل PDF با کیفیت برداری"
+            >
+              <FileDown className="w-3.5 h-3.5 text-rose-500" />
+              <span>{isExportingPdf ? 'در حال بیلد...' : 'دانلود PDF'}</span>
+            </button>
+
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all"
@@ -160,266 +518,403 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             </button>
 
             <button
+              onClick={() => setIsFullscreen((prev) => !prev)}
+              className="p-1.5 rounded-lg hover:opacity-70 transition-opacity hidden sm:block"
+              title={isFullscreen ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه استودیو'}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-4 h-4" />
+              ) : (
+                <Maximize2 className="w-4 h-4" />
+              )}
+            </button>
+
+            <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:opacity-70 transition-opacity"
-              title="بستن"
+              title="بستن پنجره"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Modal Body: Left Controls + Right Live Paper Preview */}
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          {/* LEFT: Settings Panel (Scrollable) */}
+        {/* WORKSPACE BODY: Left Inspector Tabs + Center Desk Simulator */}
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+          {/* ===================== LEFT: Comprehensive Editor & Inspector ===================== */}
           <div
-            className="w-full md:w-[380px] lg:w-[420px] border-b md:border-b-0 md:border-l flex flex-col shrink-0 overflow-y-auto"
+            className="w-full md:w-[410px] lg:w-[450px] border-b md:border-b-0 md:border-l flex flex-col shrink-0 overflow-y-auto"
             style={{
               borderColor: theme.ui.border,
               backgroundColor: theme.ui.surface,
             }}
           >
-            {/* Setting Navigation Tabs */}
+            {/* 5-Tab Navigation Bar */}
             <div
-              className="grid grid-cols-4 p-2 gap-1 border-b text-[11px] font-semibold text-center shrink-0"
+              className="grid grid-cols-5 p-1.5 gap-1 border-b text-[11px] font-semibold text-center shrink-0"
               style={{ borderColor: theme.ui.border }}
             >
               <button
-                onClick={() => setActiveTab('color')}
-                className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
-                  activeTab === 'color'
+                onClick={() => setActiveTab('presets')}
+                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl transition-all ${
+                  activeTab === 'presets'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-70'
                 }`}
+                title="قالب‌های آماده سند"
               >
-                <Palette className="w-4 h-4" />
-                <span>رنگ و چاپ</span>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="truncate w-full text-[10px]">قالب‌ها</span>
               </button>
 
               <button
-                onClick={() => setActiveTab('font')}
-                className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
-                  activeTab === 'font'
+                onClick={() => setActiveTab('typography')}
+                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl transition-all ${
+                  activeTab === 'typography'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-70'
                 }`}
+                title="انتخاب و افزودن دستی فونت"
               >
-                <Type className="w-4 h-4" />
-                <span>فونت متن</span>
+                <Type className="w-3.5 h-3.5" />
+                <span className="truncate w-full text-[10px]">قلم و فونت</span>
               </button>
 
               <button
-                onClick={() => setActiveTab('spacing')}
-                className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
-                  activeTab === 'spacing'
+                onClick={() => setActiveTab('blocks')}
+                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl transition-all ${
+                  activeTab === 'blocks'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-70'
                 }`}
+                title="بلوک‌های سربرگ و توضیحات"
               >
-                <Sliders className="w-4 h-4" />
-                <span>فاصله و جایابی</span>
+                <Layers className="w-3.5 h-3.5" />
+                <span className="truncate w-full text-[10px]">بلوک‌ها</span>
               </button>
 
               <button
-                onClick={() => setActiveTab('page')}
-                className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
-                  activeTab === 'page'
+                onClick={() => setActiveTab('diagram')}
+                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl transition-all ${
+                  activeTab === 'diagram'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-70'
                 }`}
+                title="تنظیمات مقیاس و قاب دیاگرام"
               >
-                <Layout className="w-4 h-4" />
-                <span>صفحه و کاغذ</span>
+                <Sliders className="w-3.5 h-3.5" />
+                <span className="truncate w-full text-[10px]">دیاگرام</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('paper')}
+                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl transition-all ${
+                  activeTab === 'paper'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-70'
+                }`}
+                title="تنظیمات کاغذ و جهت چاپ"
+              >
+                <Layout className="w-3.5 h-3.5" />
+                <span className="truncate w-full text-[10px]">کاغذ</span>
               </button>
             </div>
 
-            {/* Tab Contents */}
-            <div className="p-4 space-y-5 text-xs">
-              {/* TAB 1: COLOR MODE */}
-              {activeTab === 'color' && (
+            {/* TAB CONTENTS (Scrollable Inspector) */}
+            <div className="p-4 space-y-5 text-xs overflow-y-auto flex-1">
+              {/* ================= TAB 1: PRESETS & TEMPLATES ================= */}
+              {activeTab === 'presets' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="font-bold block mb-2">{t.colorMode}</label>
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {/* Full Color */}
-                      <div
-                        onClick={() => setSettings((s) => ({ ...s, colorMode: 'color' }))}
-                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          settings.colorMode === 'color'
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.colorMode === 'color' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.colorMode === 'color' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-6 h-6 rounded-full bg-linear-to-tr from-blue-500 via-indigo-500 to-amber-400 shrink-0" />
-                          <div>
-                            <div className="font-bold">{t.fullColor}</div>
-                            <div className="text-[11px] opacity-60">
-                              رنگ‌های اصلی تم، مناسب برای پرینترهای رنگی و کاتالوگ
-                            </div>
-                          </div>
-                        </div>
-                        {settings.colorMode === 'color' && (
-                          <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                        )}
-                      </div>
+                    <label className="font-bold block mb-1.5 text-sm">
+                      قالب‌های استاندارد سند چاپی
+                    </label>
+                    <p className="text-[11px] opacity-60 mb-3">
+                      با انتخاب یک قالب، چیدمان سربرگ، کادرها و رنگ‌ها به شکل استاندارد تنظیم می‌شوند:
+                    </p>
 
-                      {/* Grayscale */}
-                      <div
-                        onClick={() => setSettings((s) => ({ ...s, colorMode: 'grayscale' }))}
-                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          settings.colorMode === 'grayscale'
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.colorMode === 'grayscale' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.colorMode === 'grayscale' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-6 h-6 rounded-full bg-linear-to-tr from-gray-700 via-gray-400 to-gray-200 shrink-0" />
-                          <div>
-                            <div className="font-bold">{t.grayscale}</div>
-                            <div className="text-[11px] opacity-60">
-                              طیف خاکستری مات با کنتراست بالا جهت چاپ اداری و فتوکپی
+                    <div className="space-y-2">
+                      {[
+                        {
+                          id: 'formal',
+                          title: 'گزارش رسمی و سازمانی (Corporate)',
+                          desc: 'دارای سربرگ کامل سازمان، عنوان سند، و توضیحات ساخت‌یافته فرآیند',
+                          color: '#1E40AF',
+                        },
+                        {
+                          id: 'iso',
+                          title: 'سند مهندسی فرآیند ISO (SOP Standard)',
+                          desc: 'سربرگ مهندسی فرآیند و درج توضیحات ساخت‌یافته در بالای دیاگرام',
+                          color: '#0F766E',
+                        },
+                        {
+                          id: 'modern',
+                          title: 'کاتالوگ و پرزنتیشن رنگی (Modern)',
+                          desc: 'طراحی مدرن با کادر سایه‌دار، رنگ‌های تم و جلوه چشم‌نواز',
+                          color: '#6366F1',
+                        },
+                        {
+                          id: 'minimal',
+                          title: 'چاپ اقتصادی و اداری (Eco Ink-Saver)',
+                          desc: 'سیاه و سفید خالص جهت صرفه‌جویی حداکثری در مصرف جوهر و تونر',
+                          color: '#000000',
+                        },
+                        {
+                          id: 'diagramOnly',
+                          title: 'پوستر دیاگرام خالص (Pure Canvas)',
+                          desc: 'حداکثر ابعاد ممکن دیاگرام در تمام صفحه کاغذ بدون هدر اضافی',
+                          color: '#3B82F6',
+                        },
+                      ].map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => applyPreset(item.id as any)}
+                          className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                            settings.preset === item.id
+                              ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
+                              : 'hover:opacity-85'
+                          }`}
+                          style={{
+                            backgroundColor:
+                              settings.preset === item.id ? undefined : theme.ui.cardBg,
+                            borderColor:
+                              settings.preset === item.id ? '#2563EB' : theme.ui.border,
+                          }}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <div
+                              className="w-3.5 h-3.5 rounded-full mt-0.5 shrink-0"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <div>
+                              <div className="font-bold flex items-center gap-2">
+                                <span>{item.title}</span>
+                              </div>
+                              <div className="text-[11px] opacity-65 leading-relaxed mt-0.5">
+                                {item.desc}
+                              </div>
                             </div>
                           </div>
+                          {settings.preset === item.id && (
+                            <Check className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                          )}
                         </div>
-                        {settings.colorMode === 'grayscale' && (
-                          <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                        )}
-                      </div>
-
-                      {/* Monochrome / Ink Saver */}
-                      <div
-                        onClick={() => setSettings((s) => ({ ...s, colorMode: 'monochrome' }))}
-                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          settings.colorMode === 'monochrome'
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.colorMode === 'monochrome' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.colorMode === 'monochrome' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-6 h-6 rounded-full border-2 border-black bg-white shrink-0" />
-                          <div>
-                            <div className="font-bold">{t.monochrome}</div>
-                            <div className="text-[11px] opacity-60">
-                              پس‌زمینه سفید خالص و خطوط مشکی شفاف جهت صرفه‌جویی در کارتریج
-                            </div>
-                          </div>
-                        </div>
-                        {settings.colorMode === 'monochrome' && (
-                          <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                        )}
-                      </div>
+                      ))}
                     </div>
                   </div>
 
-                  {/* Target Pages */}
-                  <div className="pt-2 border-t" style={{ borderColor: theme.ui.border }}>
-                    <label className="font-bold block mb-2">محدوده صفحات چاپی</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setSettings((s) => ({ ...s, targetPages: 'all' }))}
-                        className={`py-2 px-3 rounded-xl border text-center font-medium transition-all ${
-                          settings.targetPages === 'all'
-                            ? 'bg-blue-600 text-white border-blue-600 font-bold'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.targetPages === 'all' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.targetPages === 'all' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        {t.allPages} ({project.pages?.length || 1})
-                      </button>
-
-                      <button
-                        onClick={() => setSettings((s) => ({ ...s, targetPages: 'current' }))}
-                        className={`py-2 px-3 rounded-xl border text-center font-medium transition-all ${
-                          settings.targetPages === 'current'
-                            ? 'bg-blue-600 text-white border-blue-600 font-bold'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.targetPages === 'current' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.targetPages === 'current' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        {t.currentPageOnly}
-                      </button>
+                  {/* Color Accent Picker */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <label className="font-bold block mb-2">رنگ تم سربرگ سند (Brand Accent)</label>
+                    <div className="flex items-center gap-2">
+                      {[
+                        { hex: '#2563EB', name: 'آبی شرکتی' },
+                        { hex: '#1E40AF', name: 'سرمه‌ای کلاسیک' },
+                        { hex: '#0F766E', name: 'سبز مهندسی' },
+                        { hex: '#047857', name: 'زمردی' },
+                        { hex: '#6366F1', name: 'نیلی مدرن' },
+                        { hex: '#991B1B', name: 'زرشکی رسمی' },
+                        { hex: '#0F172A', name: 'زغالی' },
+                      ].map((col) => (
+                        <button
+                          key={col.hex}
+                          onClick={() => setSettings((s) => ({ ...s, accentColor: col.hex }))}
+                          className={`w-7 h-7 rounded-full transition-transform flex items-center justify-center ${
+                            settings.accentColor === col.hex
+                              ? 'scale-115 ring-2 ring-offset-2 ring-blue-500'
+                              : 'hover:scale-105 opacity-80'
+                          }`}
+                          style={{ backgroundColor: col.hex }}
+                          title={col.name}
+                        >
+                          {settings.accentColor === col.hex && (
+                            <Check className="w-3.5 h-3.5 text-white" />
+                          )}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* TAB 2: FONT SETTINGS */}
-              {activeTab === 'font' && (
+              {/* ================= TAB 2: TYPOGRAPHY & CUSTOM FONTS ================= */}
+              {activeTab === 'typography' && (
                 <div className="space-y-4">
-                  {/* Font Family */}
+                  {/* Font Selection & Custom Font Section */}
                   <div>
-                    <label className="font-bold block mb-1.5">{t.fontFamily}</label>
-                    <div className="grid grid-cols-1 gap-1.5">
+                    <label className="font-bold block mb-1 text-sm">انتخاب یا افزودن دستی فونت</label>
+                    <p className="text-[11px] opacity-65 mb-3 leading-relaxed">
+                      می‌توانید از فونت‌های استاندارد زیر انتخاب کنید، نام هر فونتی را دستی بنویسید، یا فایل فونت خود را آپلود نمایید:
+                    </p>
+
+                    {/* Standard Persian & Latin Fonts */}
+                    <div className="space-y-1.5 mb-4">
                       {[
-                        { id: 'vazirmatn', name: 'وزیرمتن (پیش‌فرض)', preview: 'فلوچارت روان و مدرن' },
-                        { id: 'system', name: 'قلم سیستمی (IRANSans / Yekan)', preview: 'نمودار جریان فرآیند' },
-                        { id: 'shabnam', name: 'شبنم (Shabnam)', preview: 'قلم رسمی اسناد' },
-                        { id: 'sans', name: 'سنس استاندارد (Sans-serif)', preview: 'Modern Flow Diagram' },
-                        { id: 'serif', name: 'سریف کلاسیک (Serif)', preview: 'مستندات اداری و چاپی' },
+                        { id: 'vazirmatn', name: 'وزیرمتن (Vazirmatn)', preview: 'نمودار جریان فرآیند مدرن' },
+                        { id: 'shabnam', name: 'شبنم (Shabnam)', preview: 'اسناد اداری و رسمی' },
+                        { id: 'system', name: 'قلم سیستمی (IRANSans / Yekan / Tahoma)', preview: 'فلوچارت دقیق و خوانا' },
+                        { id: 'serif', name: 'سریف سنتی (B Nazanin / Times New Roman)', preview: 'مستندات رسمی و گزارش‌ها' },
+                        { id: 'sans', name: 'سنس مدرن (Plus Jakarta Sans)', preview: 'Modern Flow Process' },
                       ].map((f) => (
                         <button
                           key={f.id}
                           onClick={() =>
                             setSettings((s) => ({
                               ...s,
-                              fontFamily: f.id as PrintFontFamily,
+                              fontFamily: f.id,
+                              customFontName: '',
                             }))
                           }
                           className={`w-full text-right p-2.5 rounded-xl border flex items-center justify-between transition-all ${
-                            settings.fontFamily === f.id
+                            settings.fontFamily === f.id && !settings.customFontName
                               ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 font-bold'
                               : 'hover:opacity-80'
                           }`}
                           style={{
                             backgroundColor:
-                              settings.fontFamily === f.id ? undefined : theme.ui.cardBg,
+                              settings.fontFamily === f.id && !settings.customFontName
+                                ? undefined
+                                : theme.ui.cardBg,
                             borderColor:
-                              settings.fontFamily === f.id ? '#2563EB' : theme.ui.border,
+                              settings.fontFamily === f.id && !settings.customFontName
+                                ? '#2563EB'
+                                : theme.ui.border,
                           }}
                         >
                           <div>
                             <span className="block font-semibold">{f.name}</span>
                             <span className="text-[11px] opacity-55">{f.preview}</span>
                           </div>
-                          {settings.fontFamily === f.id && (
+                          {settings.fontFamily === f.id && !settings.customFontName && (
                             <Check className="w-4 h-4 text-blue-600 shrink-0" />
                           )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* MANUAL FONT BOX */}
+                    <div
+                      className="p-3.5 rounded-xl border space-y-3 bg-black/5 dark:bg-white/5"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      <div className="flex items-center gap-2 font-bold text-xs">
+                        <Plus className="w-4 h-4 text-blue-500" />
+                        <span>افزودن دستی فونت (نام یا فایل)</span>
+                      </div>
+
+                      {/* Manual Font Name Input */}
+                      <div>
+                        <label className="text-[11px] opacity-75 block mb-1">
+                          ۱. نام فونت مورد نظر (نصب‌شده در سیستم شما):
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={manualFontInput}
+                            onChange={(e) => setManualFontInput(e.target.value)}
+                            placeholder="مثال: IRANSans, Dana, B Mitra, Yekan, Tahoma, Inter..."
+                            className="flex-1 px-2.5 py-1.5 rounded-lg border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none font-mono"
+                            style={{ borderColor: theme.ui.border }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleApplyManualFontName();
+                            }}
+                          />
+                          <button
+                            onClick={handleApplyManualFontName}
+                            disabled={!manualFontInput.trim()}
+                            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs transition-all shrink-0"
+                          >
+                            اعمال
+                          </button>
+                        </div>
+                        <p className="text-[10px] opacity-60 mt-1">
+                          هر فونتی که روی ویندوز یا مک شما نصب باشد را می‌توانید تایپ و اعمال کنید.
+                        </p>
+                      </div>
+
+                      {/* Upload Font File Button */}
+                      <div className="pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+                        <label className="text-[11px] opacity-75 block mb-1.5">
+                          ۲. یا آپلود فایل فونت (.woff2 / .woff / .ttf / .otf):
+                        </label>
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFontFileUpload}
+                          accept=".woff2,.woff,.ttf,.otf"
+                          className="hidden"
+                        />
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full py-2 px-3 rounded-lg border border-dashed flex items-center justify-center gap-2 hover:bg-black/5 dark:hover:bg-white/5 transition-all font-semibold text-xs text-blue-600 dark:text-blue-400"
+                          style={{ borderColor: theme.ui.accent }}
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {uploadedFontFileName
+                              ? `فونت آپلود شده: ${uploadedFontFileName}`
+                              : 'انتخاب و آپلود فایل فونت از کامپیوتر'}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Active Font Indicator */}
+                      {settings.customFontName && (
+                        <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between">
+                          <div className="min-w-0">
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">
+                              فونت سفارشی فعال:
+                            </span>
+                            <span className="font-bold text-xs truncate block font-mono">
+                              {settings.customFontName}
+                            </span>
+                          </div>
+                          <span
+                            className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white font-bold"
+                            style={{ fontFamily: `'${settings.customFontName}', sans-serif` }}
+                          >
+                            پیش‌نمایش متن فلوچارت
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Color Mode */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <label className="font-bold block mb-2">{t.colorMode}</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'color', label: 'رنگی کامل', desc: 'پرینتر رنگی' },
+                        { id: 'grayscale', label: 'خاکستری', desc: 'چاپ اداری' },
+                        { id: 'monochrome', label: 'سیاه و سفید', desc: 'صرفه‌جویی' },
+                      ].map((cm) => (
+                        <button
+                          key={cm.id}
+                          onClick={() =>
+                            setSettings((s) => ({ ...s, colorMode: cm.id as PrintColorMode }))
+                          }
+                          className={`py-2 px-2 rounded-xl border text-center transition-all ${
+                            settings.colorMode === cm.id
+                              ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600 font-bold'
+                              : 'hover:opacity-80'
+                          }`}
+                          style={{
+                            backgroundColor:
+                              settings.colorMode === cm.id ? undefined : theme.ui.cardBg,
+                            borderColor:
+                              settings.colorMode === cm.id ? '#2563EB' : theme.ui.border,
+                          }}
+                        >
+                          <div className="text-xs">{cm.label}</div>
+                          <div className="text-[10px] opacity-60 mt-0.5">{cm.desc}</div>
                         </button>
                       ))}
                     </div>
                   </div>
 
                   {/* Font Sizes */}
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t" style={{ borderColor: theme.ui.border }}>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="font-bold">سایز متن توضیحات:</label>
@@ -433,10 +928,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                         max={18}
                         value={settings.descFontSize}
                         onChange={(e) =>
-                          setSettings((s) => ({
-                            ...s,
-                            descFontSize: Number(e.target.value),
-                          }))
+                          setSettings((s) => ({ ...s, descFontSize: Number(e.target.value) }))
                         }
                         className="w-full accent-blue-600 cursor-pointer"
                       />
@@ -444,7 +936,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="font-bold">سایز عنوان:</label>
+                        <label className="font-bold">سایز عنوان سند:</label>
                         <span className="font-mono text-blue-600 font-bold">
                           {settings.titleFontSize}px
                         </span>
@@ -455,226 +947,341 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                         max={28}
                         value={settings.titleFontSize}
                         onChange={(e) =>
-                          setSettings((s) => ({
-                            ...s,
-                            titleFontSize: Number(e.target.value),
-                          }))
+                          setSettings((s) => ({ ...s, titleFontSize: Number(e.target.value) }))
                         }
                         className="w-full accent-blue-600 cursor-pointer"
                       />
                     </div>
                   </div>
 
-                  {/* Font Weight & Alignment */}
-                  <div className="pt-2 border-t space-y-3" style={{ borderColor: theme.ui.border }}>
-                    <div>
-                      <label className="font-bold block mb-1.5">وزن قلم توضیحات:</label>
-                      <div className="grid grid-cols-2 gap-2">
+                  {/* Text Alignment */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <label className="font-bold block mb-1.5">ترازبندی متن توضیحات:</label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[
+                        { id: 'right', label: 'راست‌چین' },
+                        { id: 'center', label: 'وسط‌چین' },
+                        { id: 'left', label: 'چپ‌چین' },
+                        { id: 'justify', label: 'تراز دوطرفه' },
+                      ].map((al) => (
                         <button
-                          onClick={() => setSettings((s) => ({ ...s, fontWeight: 'normal' }))}
-                          className={`py-1.5 rounded-lg border text-center transition-all ${
-                            settings.fontWeight === 'normal'
+                          key={al.id}
+                          onClick={() =>
+                            setSettings((s) => ({ ...s, textAlign: al.id as PrintTextAlign }))
+                          }
+                          className={`py-1.5 rounded-lg border text-center text-[11px] transition-all ${
+                            settings.textAlign === al.id
                               ? 'bg-blue-600 text-white font-bold'
                               : 'hover:opacity-80'
                           }`}
                           style={{
                             backgroundColor:
-                              settings.fontWeight === 'normal' ? undefined : theme.ui.cardBg,
+                              settings.textAlign === al.id ? undefined : theme.ui.cardBg,
                             borderColor:
-                              settings.fontWeight === 'normal' ? '#2563EB' : theme.ui.border,
+                              settings.textAlign === al.id ? '#2563EB' : theme.ui.border,
                           }}
                         >
-                          عادی (Regular)
+                          {al.label}
                         </button>
-                        <button
-                          onClick={() => setSettings((s) => ({ ...s, fontWeight: 'bold' }))}
-                          className={`py-1.5 rounded-lg border text-center transition-all ${
-                            settings.fontWeight === 'bold'
-                              ? 'bg-blue-600 text-white font-bold'
-                              : 'hover:opacity-80'
-                          }`}
-                          style={{
-                            backgroundColor:
-                              settings.fontWeight === 'bold' ? undefined : theme.ui.cardBg,
-                            borderColor:
-                              settings.fontWeight === 'bold' ? '#2563EB' : theme.ui.border,
-                          }}
-                        >
-                          پررنگ (Bold)
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="font-bold block mb-1.5">تراز متن توضیحات:</label>
-                      <div className="grid grid-cols-4 gap-1">
-                        {[
-                          { id: 'right', label: 'راست' },
-                          { id: 'center', label: 'وسط' },
-                          { id: 'left', label: 'چپ' },
-                          { id: 'justify', label: 'تراز (Justify)' },
-                        ].map((al) => (
-                          <button
-                            key={al.id}
-                            onClick={() =>
-                              setSettings((s) => ({
-                                ...s,
-                                textAlign: al.id as PrintTextAlign,
-                              }))
-                            }
-                            className={`py-1.5 rounded-lg border text-center text-[11px] transition-all ${
-                              settings.textAlign === al.id
-                                ? 'bg-blue-600 text-white font-bold'
-                                : 'hover:opacity-80'
-                            }`}
-                            style={{
-                              backgroundColor:
-                                settings.textAlign === al.id ? undefined : theme.ui.cardBg,
-                              borderColor:
-                                settings.textAlign === al.id ? '#2563EB' : theme.ui.border,
-                            }}
-                          >
-                            {al.label}
-                          </button>
-                        ))}
-                      </div>
+                      ))}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* TAB 3: SPACING & PLACEMENT */}
-              {activeTab === 'spacing' && (
+              {/* ================= TAB 3: DOCUMENT BLOCKS ================= */}
+              {activeTab === 'blocks' && (
                 <div className="space-y-4">
-                  {/* Spacing Slider */}
+                  {/* Header & Meta Block */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-blue-500" />
+                        <span>سربرگ و مشخصات سند</span>
+                      </label>
+                      <input
+                        type="checkbox"
+                        checked={settings.showHeaderFooter}
+                        onChange={(e) =>
+                          setSettings((s) => ({ ...s, showHeaderFooter: e.target.checked }))
+                        }
+                        className="rounded accent-blue-600 w-4 h-4"
+                      />
+                    </div>
+
+                    {settings.showHeaderFooter && (
+                      <div className="space-y-2 pl-2 pr-1 pt-1 border-r-2 border-blue-500/30">
+                        <div>
+                          <label className="text-[11px] opacity-70 block mb-1">نام سازمان / شرکت:</label>
+                          <input
+                            type="text"
+                            value={settings.organizationName || ''}
+                            onChange={(e) =>
+                              setSettings((s) => ({ ...s, organizationName: e.target.value }))
+                            }
+                            placeholder="نام شرکت یا سازمان..."
+                            className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none"
+                            style={{ borderColor: theme.ui.border }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] opacity-70 block mb-1">عنوان سند چاپی:</label>
+                          <input
+                            type="text"
+                            value={settings.documentTitle || ''}
+                            onChange={(e) =>
+                              setSettings((s) => ({ ...s, documentTitle: e.target.value }))
+                            }
+                            placeholder={project.title || 'عنوان فلوچارت...'}
+                            className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none"
+                            style={{ borderColor: theme.ui.border }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] opacity-70 block mb-1">زیرعنوان یا دپارتمان سند:</label>
+                          <input
+                            type="text"
+                            value={settings.documentSubtitle || ''}
+                            onChange={(e) =>
+                              setSettings((s) => ({ ...s, documentSubtitle: e.target.value }))
+                            }
+                            placeholder="مثلاً دپارتمان سیستم‌ها و مهندسی فرآیند..."
+                            className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none"
+                            style={{ borderColor: theme.ui.border }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Description & Notes Block */}
+                  <div className="pt-3 border-t space-y-2" style={{ borderColor: theme.ui.border }}>
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-emerald-500" />
+                        <span>شرح و یادداشت‌های فرآیند این صفحه</span>
+                      </label>
+                      <select
+                        value={settings.descPosition}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            descPosition: e.target.value as PrintDescPosition,
+                          }))
+                        }
+                        className="px-2 py-1 rounded-lg border text-[11px] bg-transparent outline-none"
+                        style={{ borderColor: theme.ui.border }}
+                      >
+                        <option value="below">زیر دیاگرام</option>
+                        <option value="above">بالای دیاگرام</option>
+                        <option value="appendix">صفحه ضمیمه مجزا</option>
+                      </select>
+                    </div>
+
+                    <textarea
+                      value={localPageDesc}
+                      onChange={(e) => setLocalPageDesc(e.target.value)}
+                      placeholder="توضیحات و مستندات این صفحه را اینجا بنویسید (در صفحه چاپ منعکس می‌شود)..."
+                      rows={3}
+                      className="w-full p-2.5 rounded-xl border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none leading-relaxed resize-y"
+                      style={{ borderColor: theme.ui.border }}
+                    />
+                  </div>
+
+                  {/* Key Tips & Considerations Block (قسمت نکات) */}
+                  <div className="pt-3 border-t space-y-2" style={{ borderColor: theme.ui.border }}>
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4 text-amber-500" />
+                        <span>نکات و ملاحظات این صفحه</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-[11px]">
+                        <input
+                          type="checkbox"
+                          checked={settings.showNotes !== false}
+                          onChange={(e) =>
+                            setSettings((s) => ({ ...s, showNotes: e.target.checked }))
+                          }
+                          className="rounded accent-amber-600 w-3.5 h-3.5"
+                        />
+                        <span className="opacity-75">نمایش در چاپ</span>
+                      </label>
+                    </div>
+                    <p className="text-[11px] opacity-65 leading-relaxed">
+                      الزامات اجرایی، هشدارها یا نکات کلیدی این صفحه را بنویسید (در هر خط یا با نشان •):
+                    </p>
+                    <textarea
+                      value={localPageNotes}
+                      onChange={(e) => setLocalPageNotes(e.target.value)}
+                      placeholder="• نکته ۱: رعایت زمان‌بندی حداکثر ۲۴ ساعته در این مرحله الزامی است...&#10;• نکته ۲: تاییدیه نهایی مدیر سیستم‌ها دریافت گردد..."
+                      rows={3}
+                      className="w-full p-2.5 rounded-xl border text-xs bg-transparent focus:ring-1 focus:ring-amber-500 outline-none leading-relaxed resize-y"
+                      style={{ borderColor: theme.ui.border }}
+                    />
+                  </div>
+
+                  {/* Cover Page Switch */}
+                  <div className="pt-3 border-t flex items-center justify-between" style={{ borderColor: theme.ui.border }}>
+                    <div>
+                      <div className="font-bold flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-blue-500" />
+                        <span>صفحه جلد اختصاصی (Cover Page)</span>
+                      </div>
+                      <div className="text-[11px] opacity-60">
+                        افزودن یک صفحه جلد رسمی و شکیل قبل از صفحات دیاگرام
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings.includeCoverPage || false}
+                      onChange={(e) =>
+                        setSettings((s) => ({ ...s, includeCoverPage: e.target.checked }))
+                      }
+                      className="rounded accent-blue-600 w-4 h-4"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ================= TAB 4: DIAGRAM LAYOUT & SCALE ================= */}
+              {activeTab === 'diagram' && (
+                <div className="space-y-4">
+                  {/* Diagram Scale */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="font-bold">{t.textSpacing}:</label>
+                      <label className="font-bold">مقیاس بزرگ‌نمایی دیاگرام در صفحه:</label>
                       <span className="font-mono text-blue-600 font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950">
+                        {settings.diagramScale || 100}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={60}
+                      max={150}
+                      step={5}
+                      value={settings.diagramScale || 100}
+                      onChange={(e) =>
+                        setSettings((s) => ({ ...s, diagramScale: Number(e.target.value) }))
+                      }
+                      className="w-full accent-blue-600 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] opacity-60 mt-1">
+                      <button
+                        onClick={() => setSettings((s) => ({ ...s, diagramScale: 80 }))}
+                        className="hover:underline"
+                      >
+                        ۸۰٪ (جمع‌وجور)
+                      </button>
+                      <button
+                        onClick={() => setSettings((s) => ({ ...s, diagramScale: 100 }))}
+                        className="hover:underline font-bold text-blue-600"
+                      >
+                        ۱۰۰٪ (استاندارد)
+                      </button>
+                      <button
+                        onClick={() => setSettings((s) => ({ ...s, diagramScale: 130 }))}
+                        className="hover:underline"
+                      >
+                        ۱۳۰٪ (بزرگ و برجسته)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Diagram Border Style */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <label className="font-bold block mb-2">کادر و قاب دور دیاگرام:</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'thin', name: 'خط باریک کلاسیک' },
+                        { id: 'double', name: 'کادر دوبل رسمی' },
+                        { id: 'dashed', name: 'خط‌چین مهندسی' },
+                        { id: 'shadow', name: 'قاب مدرن سایه‌دار' },
+                        { id: 'none', name: 'بدون کادر (شفاف)' },
+                      ].map((b) => (
+                        <button
+                          key={b.id}
+                          onClick={() =>
+                            setSettings((s) => ({
+                              ...s,
+                              diagramBorder: b.id as any,
+                              showBorders: b.id !== 'none',
+                            }))
+                          }
+                          className={`py-2 px-2.5 rounded-xl border text-center font-semibold text-[11px] transition-all ${
+                            settings.diagramBorder === b.id
+                              ? 'bg-blue-600 text-white border-blue-600 font-bold'
+                              : 'hover:opacity-80'
+                          }`}
+                          style={{
+                            backgroundColor:
+                              settings.diagramBorder === b.id ? undefined : theme.ui.cardBg,
+                            borderColor:
+                              settings.diagramBorder === b.id ? '#2563EB' : theme.ui.border,
+                          }}
+                        >
+                          {b.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Diagram Background Texture */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <label className="font-bold block mb-2">پس‌زمینه دیاگرام:</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'white', name: 'سفید خالص' },
+                        { id: 'subtle', name: 'خاکستری ملایم' },
+                        { id: 'grid', name: 'شطرنجی مهندسی' },
+                      ].map((bg) => (
+                        <button
+                          key={bg.id}
+                          onClick={() => setSettings((s) => ({ ...s, diagramBg: bg.id as any }))}
+                          className={`py-2 px-2 rounded-xl border text-center font-semibold text-[11px] transition-all ${
+                            settings.diagramBg === bg.id
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'hover:opacity-80'
+                          }`}
+                          style={{
+                            backgroundColor:
+                              settings.diagramBg === bg.id ? undefined : theme.ui.cardBg,
+                            borderColor:
+                              settings.diagramBg === bg.id ? '#2563EB' : theme.ui.border,
+                          }}
+                        >
+                          {bg.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Spacing Between Sections */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="font-bold">فاصله میان اجزای صفحه (Spacing):</label>
+                      <span className="font-mono text-blue-600 font-bold">
                         {settings.spacing} px
                       </span>
                     </div>
                     <input
                       type="range"
                       min={8}
-                      max={64}
+                      max={48}
                       step={4}
                       value={settings.spacing}
                       onChange={(e) =>
-                        setSettings((s) => ({
-                          ...s,
-                          spacing: Number(e.target.value),
-                        }))
+                        setSettings((s) => ({ ...s, spacing: Number(e.target.value) }))
                       }
                       className="w-full accent-blue-600 cursor-pointer"
                     />
-                    <div className="flex justify-between text-[10px] opacity-60 mt-1">
-                      <span>۸ پیکسل (فشرده)</span>
-                      <span>۲۴ پیکسل (استاندارد)</span>
-                      <span>۶۴ پیکسل (باز و فاصله‌دار)</span>
-                    </div>
-                  </div>
-
-                  {/* Description Placement */}
-                  <div className="pt-2 border-t" style={{ borderColor: theme.ui.border }}>
-                    <label className="font-bold block mb-2">{t.descPosition}</label>
-                    <div className="grid grid-cols-1 gap-2">
-                      <div
-                        onClick={() =>
-                          setSettings((s) => ({
-                            ...s,
-                            descPosition: 'below',
-                          }))
-                        }
-                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          settings.descPosition === 'below'
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.descPosition === 'below' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.descPosition === 'below' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        <div>
-                          <div className="font-bold">{t.positionBelow}</div>
-                          <div className="text-[11px] opacity-60">
-                            نمودار در بالا و کادر یادداشت‌ها در زیر آن قرار می‌گیرد
-                          </div>
-                        </div>
-                        {settings.descPosition === 'below' && (
-                          <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                        )}
-                      </div>
-
-                      <div
-                        onClick={() =>
-                          setSettings((s) => ({
-                            ...s,
-                            descPosition: 'above',
-                          }))
-                        }
-                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          settings.descPosition === 'above'
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.descPosition === 'above' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.descPosition === 'above' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        <div>
-                          <div className="font-bold">{t.positionAbove}</div>
-                          <div className="text-[11px] opacity-60">
-                            توضیحات و مستندات قبل از رسم فلوچارت چاپ می‌شوند
-                          </div>
-                        </div>
-                        {settings.descPosition === 'above' && (
-                          <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                        )}
-                      </div>
-
-                      <div
-                        onClick={() =>
-                          setSettings((s) => ({
-                            ...s,
-                            descPosition: 'appendix',
-                          }))
-                        }
-                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          settings.descPosition === 'appendix'
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
-                            : 'hover:opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            settings.descPosition === 'appendix' ? undefined : theme.ui.cardBg,
-                          borderColor:
-                            settings.descPosition === 'appendix' ? '#2563EB' : theme.ui.border,
-                        }}
-                      >
-                        <div>
-                          <div className="font-bold">{t.positionAppendix}</div>
-                          <div className="text-[11px] opacity-60">
-                            فلوچارت در یک برگه و مستندات کامل در صفحه بعدی پیوست می‌شود
-                          </div>
-                        </div>
-                        {settings.descPosition === 'appendix' && (
-                          <Check className="w-4 h-4 text-blue-600 shrink-0" />
-                        )}
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
 
-              {/* TAB 4: PAGE & PAPER SETTINGS */}
-              {activeTab === 'page' && (
+              {/* ================= TAB 5: PAPER & MARGINS ================= */}
+              {activeTab === 'paper' && (
                 <div className="space-y-4">
                   {/* Paper Size */}
                   <div>
@@ -703,7 +1310,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                   </div>
 
                   {/* Orientation */}
-                  <div className="pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
                     <label className="font-bold block mb-1.5">{t.orientation}</label>
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -721,7 +1328,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                         }}
                       >
                         <span className="w-5 h-3.5 border-2 rounded-xs border-current inline-block" />
-                        <span>{t.landscape}</span>
+                        <span>{t.landscape} (افقی)</span>
                       </button>
 
                       <button
@@ -739,18 +1346,18 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                         }}
                       >
                         <span className="w-3.5 h-5 border-2 rounded-xs border-current inline-block" />
-                        <span>{t.portrait}</span>
+                        <span>{t.portrait} (عمودی)</span>
                       </button>
                     </div>
                   </div>
 
                   {/* Margins */}
-                  <div className="pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
                     <label className="font-bold block mb-1.5">حاشیه کاغذ (Margins)</label>
                     <div className="grid grid-cols-3 gap-1.5">
                       {[
                         { id: 'compact', label: 'کم (10mm)' },
-                        { id: 'normal', label: 'عادی (18mm)' },
+                        { id: 'normal', label: 'استاندارد (18mm)' },
                         { id: 'spacious', label: 'زیاد (26mm)' },
                       ].map((m) => (
                         <button
@@ -761,7 +1368,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                               marginSize: m.id as PrintSettings['marginSize'],
                             }))
                           }
-                          className={`py-1.5 rounded-xl border text-center text-[11px] font-medium transition-all ${
+                          className={`py-1.5 rounded-xl border text-center text-[11px] font-semibold transition-all ${
                             settings.marginSize === m.id
                               ? 'bg-blue-600 text-white font-bold'
                               : 'hover:opacity-80'
@@ -779,20 +1386,21 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Toggles */}
-                  <div className="pt-2 border-t space-y-2.5" style={{ borderColor: theme.ui.border }}>
-                    <label className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.showHeaderFooter}
-                        onChange={(e) =>
-                          setSettings((s) => ({ ...s, showHeaderFooter: e.target.checked }))
-                        }
-                        className="rounded accent-blue-600 w-4 h-4"
-                      />
-                      <span>نمایش سربرگ و پانویس صفحه</span>
-                    </label>
+                  {/* Footer note input */}
+                  <div className="pt-3 border-t space-y-1.5" style={{ borderColor: theme.ui.border }}>
+                    <label className="font-bold block">متن پانویس سند (Footer Note):</label>
+                    <input
+                      type="text"
+                      value={settings.footerNote || ''}
+                      onChange={(e) => setSettings((s) => ({ ...s, footerNote: e.target.value }))}
+                      placeholder="کلیه حقوق محفوظ است..."
+                      className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none"
+                      style={{ borderColor: theme.ui.border }}
+                    />
+                  </div>
 
+                  {/* Page options checkboxes */}
+                  <div className="pt-3 border-t space-y-2.5" style={{ borderColor: theme.ui.border }}>
                     <label className="flex items-center gap-2.5 cursor-pointer">
                       <input
                         type="checkbox"
@@ -820,210 +1428,377 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                     <label className="flex items-center gap-2.5 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={settings.showBorders}
-                        onChange={(e) =>
-                          setSettings((s) => ({ ...s, showBorders: e.target.checked }))
-                        }
+                        checked={showMarginGuides}
+                        onChange={(e) => setShowMarginGuides(e.target.checked)}
                         className="rounded accent-blue-600 w-4 h-4"
                       />
-                      <span>کادر و قاب خطی دور دیاگرام</span>
+                      <span>نمایش خطوط راهنمای حاشیه چاپ در پیش‌نمایش</span>
                     </label>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Bottom Actions inside Panel */}
+            {/* Quick Export Bar at bottom of Inspector */}
             <div
-              className="mt-auto p-3 border-t flex flex-col gap-2 shrink-0"
+              className="mt-auto p-3 border-t flex flex-col gap-2 shrink-0 bg-black/5 dark:bg-white/5"
               style={{ borderColor: theme.ui.border }}
             >
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={handleDownloadPdf}
-                  disabled={isExportingPdf}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+                  onClick={handleDownloadPng}
+                  disabled={isExportingPng}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-all"
                   style={{ borderColor: theme.ui.border }}
+                  title="دانلود تصویر صفحه با وضوح بالا ۳۰۰ DPI"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-red-500" />
-                  <span>{isExportingPdf ? 'در حال بیلد...' : 'دانلود PDF'}</span>
+                  <Download className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>{isExportingPng ? 'ایجاد تصویر...' : 'تصویر 300DPI'}</span>
                 </button>
 
                 <button
                   onClick={handleDownloadHtml}
                   disabled={isDownloadingHtml}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-all"
                   style={{ borderColor: theme.ui.border }}
+                  title="دانلود گزارش مستقل HTML"
                 >
                   <FileCode className="w-3.5 h-3.5 text-blue-500" />
-                  <span>{isDownloadingHtml ? 'آماده‌سازی...' : 'فایل HTML'}</span>
+                  <span>{isDownloadingHtml ? 'آماده‌سازی...' : 'فایل مستقل HTML'}</span>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* RIGHT: Live Interactive Paper Preview */}
-          <div className="flex-1 flex flex-col min-w-0 bg-slate-100 dark:bg-slate-900/80 p-3 sm:p-5 overflow-hidden">
-            {/* Preview Navigation Bar */}
-            <div className="flex items-center justify-between pb-3 shrink-0">
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-bold">{t.printPreview}:</span>
-                <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold">
-                  {activePreviewPage?.name || 'صفحه'}
-                </span>
-                <span className="text-[11px] opacity-60">
-                  ({activePreviewPage?.nodes.length || 0} گره)
-                </span>
-              </div>
-
-              {availablePages.length > 1 && (
-                <div className="flex items-center gap-1.5 bg-white dark:bg-gray-800 border rounded-xl px-2 py-1 shadow-xs text-xs">
-                  <button
-                    onClick={() =>
-                      setPreviewPageIndex((i) =>
-                        i > 0 ? i - 1 : availablePages.length - 1
-                      )
-                    }
-                    className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
-                    title="صفحه قبلی"
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="font-mono font-bold text-[11px] px-1">
-                    صفحه {currentPageIndex + 1} از {availablePages.length}
+          {/* ===================== RIGHT / CENTER: Live Interactive Studio Desk ===================== */}
+          <div className="flex-1 flex flex-col min-w-0 bg-slate-900/90 text-slate-100 overflow-hidden relative">
+            {/* Studio Desk Toolbar (Floating over preview) */}
+            <div className="h-11 px-4 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between shrink-0 text-xs">
+              {/* Left Desk: Page indicator & Page switcher */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="font-bold text-[11px]">
+                    صفحه: {activePreviewPage?.name}
                   </span>
-                  <button
-                    onClick={() =>
-                      setPreviewPageIndex((i) =>
-                        i < availablePages.length - 1 ? i + 1 : 0
-                      )
-                    }
-                    className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
-                    title="صفحه بعدی"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
+                  <span className="text-[10px] opacity-60 font-mono">
+                    ({activePreviewPage?.nodes.length || 0} گره)
+                  </span>
                 </div>
-              )}
-            </div>
 
-            {/* Sheet Canvas Simulator */}
-            <div className="flex-1 flex items-center justify-center overflow-auto p-2">
-              <div
-                className={`bg-white text-slate-900 shadow-2xl rounded-sm transition-all duration-300 flex flex-col justify-between p-6 sm:p-8 select-none relative ${
-                  settings.orientation === 'landscape'
-                    ? 'w-[680px] max-w-full aspect-[297/210]'
-                    : 'w-[480px] max-w-full aspect-[210/297]'
-                }`}
-                style={{
-                  fontFamily: fontFamilyCss,
-                }}
-              >
-                {/* Simulated Sheet Header */}
-                {settings.showHeaderFooter && (
-                  <div className="border-b-2 border-slate-200 pb-2 mb-3 flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-xs">
-                        FlowCraft
-                      </span>
-                      <span
-                        className="font-bold text-slate-900 truncate max-w-[200px]"
-                        style={{ fontSize: Math.max(12, settings.titleFontSize * 0.6) }}
-                      >
-                        {project.title || 'فلوچارت'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                      <span className="font-semibold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {activePreviewPage?.name}
-                      </span>
-                      {settings.showDate && <span>{new Date().toLocaleDateString('fa-IR')}</span>}
-                    </div>
+                {availablePages.length > 1 && (
+                  <div className="flex items-center gap-1 bg-slate-800 rounded-lg px-1.5 py-0.5 border border-slate-700">
+                    <button
+                      onClick={() =>
+                        setPreviewPageIndex((i) =>
+                          i > 0 ? i - 1 : availablePages.length - 1
+                        )
+                      }
+                      className="p-1 rounded hover:bg-slate-700"
+                      title="صفحه قبل"
+                    >
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                    <span className="font-mono text-[10px] px-1 font-bold">
+                      {safePageIndex + 1} / {availablePages.length}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setPreviewPageIndex((i) =>
+                          i < availablePages.length - 1 ? i + 1 : 0
+                        )
+                      }
+                      className="p-1 rounded hover:bg-slate-700"
+                      title="صفحه بعد"
+                    >
+                      <ChevronLeft className="w-3 h-3" />
+                    </button>
                   </div>
                 )}
+              </div>
 
-                {/* Simulated Sheet Body */}
-                <div className="flex-1 flex flex-col justify-center min-h-0 overflow-hidden">
-                  {/* Description Above */}
-                  {settings.descPosition === 'above' && activePreviewPage?.description && (
-                    <div
-                      className="bg-slate-50 border border-slate-200 border-r-4 border-r-blue-600 rounded p-2.5 text-slate-800 shrink-0"
-                      style={{
-                        marginBottom: Math.max(6, settings.spacing * 0.4),
-                        fontSize: Math.max(9, settings.descFontSize * 0.75),
-                        fontWeight: settings.fontWeight,
-                        textAlign: settings.textAlign,
-                      }}
-                    >
-                      <div className="text-[9px] font-bold text-blue-600 mb-1">
-                        توضیحات و مستندات این فلوچارت:
-                      </div>
-                      <div className="line-clamp-3 leading-relaxed">
-                        {activePreviewPage.description}
-                      </div>
-                    </div>
-                  )}
+              {/* Center Zoom Controls */}
+              <div className="flex items-center gap-1.5 bg-slate-800 rounded-xl px-2 py-1 border border-slate-700">
+                <button
+                  onClick={() => setZoomLevel((z) => Math.max(50, z - 15))}
+                  className="p-1 rounded hover:bg-slate-700"
+                  title="کوچک‌نمایی"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <span className="font-mono text-[11px] px-1.5 font-bold min-w-[42px] text-center">
+                  {zoomLevel}%
+                </span>
+                <button
+                  onClick={() => setZoomLevel((z) => Math.min(180, z + 15))}
+                  className="p-1 rounded hover:bg-slate-700"
+                  title="بزرگ‌نمایی"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setZoomLevel(100)}
+                  className="text-[10px] px-1.5 py-0.5 rounded hover:bg-slate-700 text-slate-300 font-semibold"
+                  title="اندازه واقعی ۱۰۰٪"
+                >
+                  100%
+                </button>
+              </div>
 
-                  {/* SVG Diagram Box */}
+              {/* Right Desk: Quick Paper Flip */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    setSettings((s) => ({
+                      ...s,
+                      orientation: s.orientation === 'landscape' ? 'portrait' : 'landscape',
+                    }))
+                  }
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] font-semibold transition-all"
+                  title="تغییر جهت کاغذ (افقی / عمودی)"
+                >
+                  <Layout className="w-3 h-3 text-blue-400" />
+                  <span>{settings.orientation === 'landscape' ? 'افقی' : 'عمودی'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Studio Canvas Viewport */}
+            <div className="flex-1 overflow-auto p-4 sm:p-8 flex items-center justify-center relative">
+              {/* VIEW MODE 1: SHEET PREVIEW (Real Paper Simulation) */}
+              {viewMode === 'sheet' && (
+                <div
+                  className="transition-transform duration-200 origin-center flex justify-center"
+                  style={{ transform: `scale(${zoomLevel / 100})` }}
+                >
+                  {/* The Physical Sheet Simulator */}
                   <div
-                    className={`flex-1 flex items-center justify-center overflow-hidden min-h-0 ${
-                      settings.showBorders ? 'border border-slate-300 rounded p-2' : ''
+                    className={`bg-white text-slate-900 shadow-2xl rounded-xs transition-all flex flex-col justify-between select-none relative overflow-hidden ${
+                      settings.orientation === 'landscape'
+                        ? 'w-[780px] max-w-full aspect-[297/210] p-7 sm:p-9'
+                        : 'w-[560px] max-w-full aspect-[210/297] p-8 sm:p-10'
                     }`}
+                    style={{
+                      fontFamily: fontFamilyCss,
+                    }}
                   >
-                    <div
-                      className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:max-h-full [&>svg]:object-contain"
-                      dangerouslySetInnerHTML={{ __html: pageSvgResult.svg }}
-                    />
-                  </div>
+                    {/* Dotted Print Margin Guide overlay */}
+                    {showMarginGuides && (
+                      <div
+                        className="absolute inset-3 sm:inset-4 border border-dashed border-blue-400/30 pointer-events-none rounded-xs"
+                        title="حاشیه استاندارد چاپ"
+                      />
+                    )}
 
-                  {/* Description Below */}
-                  {settings.descPosition === 'below' && activePreviewPage?.description && (
-                    <div
-                      className="bg-slate-50 border border-slate-200 border-r-4 border-r-blue-600 rounded p-2.5 text-slate-800 shrink-0"
-                      style={{
-                        marginTop: Math.max(6, settings.spacing * 0.4),
-                        fontSize: Math.max(9, settings.descFontSize * 0.75),
-                        fontWeight: settings.fontWeight,
-                        textAlign: settings.textAlign,
-                      }}
-                    >
-                      <div className="text-[9px] font-bold text-blue-600 mb-1">
-                        توضیحات و مستندات این فلوچارت:
+                    {/* ================= SHEET HEADER ================= */}
+                    {settings.showHeaderFooter && (
+                      <div className="border-b-2 border-slate-200 pb-2.5 mb-3 flex items-center justify-between shrink-0 relative z-10">
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className="text-white text-[9px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wide"
+                            style={{ backgroundColor: accentColor }}
+                          >
+                            {effectiveOrg}
+                          </span>
+                          <div>
+                            <div
+                              className="font-bold text-slate-900 truncate max-w-[240px] leading-tight"
+                              style={{
+                                fontSize: Math.max(12, settings.titleFontSize * 0.65),
+                              }}
+                            >
+                              {effectiveTitle}
+                            </div>
+                            {settings.documentSubtitle && (
+                              <div className="text-[9px] text-slate-500">
+                                {settings.documentSubtitle}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                          <span className="font-semibold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-800">
+                            {activePreviewPage?.name}
+                          </span>
+                          {settings.showDate && (
+                            <span className="text-[9px]">
+                              {new Date().toLocaleDateString('fa-IR')}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="line-clamp-3 leading-relaxed">
-                        {activePreviewPage.description}
+                    )}
+
+                    {/* ================= SHEET BODY ================= */}
+                    <div className="flex-1 flex flex-col justify-center min-h-0 overflow-hidden relative z-10">
+                      {/* Description Above */}
+                      {settings.descPosition === 'above' && localPageDesc && (
+                        <div
+                          className="bg-slate-50/90 border border-slate-200 border-r-4 rounded p-2.5 text-slate-800 shrink-0"
+                          style={{
+                            borderRightColor: accentColor,
+                            marginBottom: Math.max(4, settings.spacing * 0.25),
+                            fontSize: Math.max(9, settings.descFontSize * 0.72),
+                            fontWeight: settings.fontWeight,
+                            textAlign: settings.textAlign,
+                          }}
+                        >
+                          <div
+                            className="text-[9px] font-bold mb-0.5"
+                            style={{ color: accentColor }}
+                          >
+                            مستندات و شرح فرآیند:
+                          </div>
+                          <div className="line-clamp-3 leading-relaxed whitespace-pre-line">
+                            {localPageDesc}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Notes Above */}
+                      {settings.descPosition === 'above' && settings.showNotes !== false && localPageNotes && (
+                        <div
+                          className="bg-amber-50/90 border border-amber-200 border-r-4 rounded p-2 text-slate-800 shrink-0 mb-2"
+                          style={{
+                            borderRightColor: '#D97706',
+                            fontSize: Math.max(8.5, settings.descFontSize * 0.68),
+                            fontWeight: settings.fontWeight,
+                            textAlign: settings.textAlign,
+                          }}
+                        >
+                          <div className="text-[9px] font-bold text-amber-800 flex items-center gap-1 mb-0.5">
+                            <Lightbulb className="w-3 h-3 text-amber-600 inline shrink-0" />
+                            <span>نکات و ملاحظات کلیدی:</span>
+                          </div>
+                          <div className="line-clamp-2 leading-relaxed whitespace-pre-line text-amber-950">
+                            {localPageNotes}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* DIAGRAM SVG CONTAINER */}
+                      <div
+                        className={`flex-1 flex items-center justify-center overflow-hidden min-h-0 rounded p-1.5 ${getDiagramBorderClass()} ${getDiagramBgClass()}`}
+                      >
+                        <div
+                          className="w-full h-full flex items-center justify-center transition-transform [&>svg]:w-full [&>svg]:h-full [&>svg]:max-h-full [&>svg]:object-contain"
+                          style={{
+                            transform: `scale(${(settings.diagramScale || 100) / 100})`,
+                          }}
+                          dangerouslySetInnerHTML={{ __html: pageSvgResult.svg }}
+                        />
                       </div>
-                    </div>
-                  )}
 
-                  {/* Appendix notice if appendix mode */}
-                  {settings.descPosition === 'appendix' && activePreviewPage?.description && (
-                    <div className="text-center text-[10px] text-blue-600 font-semibold mt-1">
-                      (توضیحات و یادداشت‌ها در صفحه ضمیمه مجزا چاپ می‌شوند)
-                    </div>
-                  )}
-                </div>
+                      {/* Description Below */}
+                      {settings.descPosition === 'below' && localPageDesc && (
+                        <div
+                          className="bg-slate-50/90 border border-slate-200 border-r-4 rounded p-2 text-slate-800 shrink-0 mt-2"
+                          style={{
+                            borderRightColor: accentColor,
+                            fontSize: Math.max(9, settings.descFontSize * 0.72),
+                            fontWeight: settings.fontWeight,
+                            textAlign: settings.textAlign,
+                          }}
+                        >
+                          <div
+                            className="text-[9px] font-bold mb-0.5"
+                            style={{ color: accentColor }}
+                          >
+                            مستندات و شرح فرآیند:
+                          </div>
+                          <div className="line-clamp-2 leading-relaxed whitespace-pre-line">
+                            {localPageDesc}
+                          </div>
+                        </div>
+                      )}
 
-                {/* Simulated Sheet Footer */}
-                {settings.showHeaderFooter && (
-                  <div className="border-t border-slate-200 pt-2 mt-2 flex items-center justify-between text-[9px] text-slate-500 shrink-0">
-                    <div>
-                      نمادها: {activePreviewPage?.nodes.length || 0} • حالت:{' '}
-                      {settings.colorMode === 'color'
-                        ? 'رنگی'
-                        : settings.colorMode === 'grayscale'
-                        ? 'خاکستری'
-                        : 'سیاه و سفید'}
+                      {/* Notes Below */}
+                      {settings.descPosition === 'below' && settings.showNotes !== false && localPageNotes && (
+                        <div
+                          className="bg-amber-50/90 border border-amber-200 border-r-4 rounded p-2 text-slate-800 shrink-0 mt-1.5"
+                          style={{
+                            borderRightColor: '#D97706',
+                            fontSize: Math.max(8.5, settings.descFontSize * 0.68),
+                            fontWeight: settings.fontWeight,
+                            textAlign: settings.textAlign,
+                          }}
+                        >
+                          <div className="text-[9px] font-bold text-amber-800 flex items-center gap-1 mb-0.5">
+                            <Lightbulb className="w-3 h-3 text-amber-600 inline shrink-0" />
+                            <span>نکات و ملاحظات کلیدی:</span>
+                          </div>
+                          <div className="line-clamp-2 leading-relaxed whitespace-pre-line text-amber-950">
+                            {localPageNotes}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {settings.showPageNumbers && (
-                      <div className="font-mono font-bold">
-                        صفحه {currentPageIndex + 1} از {availablePages.length}
+
+                    {/* ================= SHEET FOOTER ================= */}
+                    {settings.showHeaderFooter && (
+                      <div className="border-t border-slate-200 pt-1.5 mt-2 flex items-center justify-between text-[8.5px] text-slate-500 shrink-0 relative z-10">
+                        <div>
+                          {settings.footerNote || 'سند استاندارد مدیریت فرآیند'} • گره‌ها:{' '}
+                          {activePreviewPage?.nodes.length || 0}
+                        </div>
+                        {settings.showPageNumbers && (
+                          <div className="font-mono font-bold">
+                            صفحه {safePageIndex + 1} از {availablePages.length}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* VIEW MODE 2: STANDALONE HTML REPORT PREVIEW */}
+              {viewMode === 'html' && (
+                <div className="w-full max-w-4xl bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col max-h-[90%] shadow-xl">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3 shrink-0">
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-100">
+                        کد سند مستقل و بهینه‌سازی‌شده برای چاپ (HTML Standalone)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        این سند شامل تمام استایل‌های اختصاصی @media print و فونت‌های تعریف‌شده است.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyHtml}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold transition-all"
+                      >
+                        {isHtmlCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-emerald-400">کپی شد!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>کپی در کلیپ‌بورد</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={handleDownloadHtml}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-all"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>دانلود فایل HTML</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-auto bg-slate-900 rounded-xl p-3 border border-slate-800">
+                    <pre className="font-mono text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
+                      {generatePrintReportHtml(project, settings)}
+                    </pre>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -88,12 +88,20 @@ function initDefaultDatabase() {
   };
 
   projectsDatabase[defaultId] = defaultProject;
-  persistToDisk();
+  persistToDisk(true);
 }
 
-function persistToDisk() {
+let isDirty = false;
+
+function markDirty() {
+  isDirty = true;
+}
+
+function persistToDisk(force = false) {
+  if (!isDirty && !force) return;
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(projectsDatabase, null, 2), 'utf-8');
+    isDirty = false;
   } catch (err) {
     console.warn('Error persisting projects to disk:', err);
   }
@@ -190,6 +198,7 @@ app.post('/api/projects', (req, res) => {
     ],
   };
   projectsDatabase[id] = newProject;
+  markDirty();
   persistToDisk();
   res.json(newProject);
 });
@@ -211,6 +220,7 @@ app.put('/api/projects/:id', (req, res) => {
   if (pages !== undefined) project.pages = pages;
   if (activePageId !== undefined) project.activePageId = activePageId;
 
+  markDirty();
   persistToDisk();
   res.json({ success: true, project });
 });
@@ -232,6 +242,7 @@ app.post('/api/projects/:id/duplicate', (req, res) => {
   clonedProject.updatedAt = now;
 
   projectsDatabase[newId] = clonedProject;
+  markDirty();
   persistToDisk();
   res.json({ success: true, project: clonedProject });
 });
@@ -246,6 +257,7 @@ app.delete('/api/projects/:id', (req, res) => {
     if (Object.keys(projectsDatabase).length === 0) {
       initDefaultDatabase();
     } else {
+      markDirty();
       persistToDisk();
     }
     return res.json({ success: true, message: 'Project deleted' });
@@ -278,6 +290,7 @@ app.post('/api/projects/:id/snapshots', (req, res) => {
     project.versions = project.versions.slice(0, 30);
   }
   project.updatedAt = now;
+  markDirty();
   persistToDisk();
 
   // Broadcast version creation to websocket clients in room
@@ -316,6 +329,7 @@ app.post('/api/projects/:id/restore/:snapshotId', (req, res) => {
   project.updatedAt = now;
   project.versions.unshift(backupVersion);
 
+  markDirty();
   persistToDisk();
 
   // Broadcast restored state to all clients in room
@@ -414,6 +428,7 @@ wss.on('connection', (ws) => {
             project.nodes.push(msg.node);
           }
           project.updatedAt = Date.now();
+          markDirty();
         }
         broadcastToRoom(currentClient.projectId, msg, ws);
       } else if (msg.type === 'node_delete' && currentClient) {
@@ -424,6 +439,7 @@ wss.on('connection', (ws) => {
             (e) => e.sourceNodeId !== msg.nodeId && e.targetNodeId !== msg.nodeId
           );
           project.updatedAt = Date.now();
+          markDirty();
         }
         broadcastToRoom(currentClient.projectId, msg, ws);
       } else if (msg.type === 'edge_update' && currentClient) {
@@ -436,6 +452,7 @@ wss.on('connection', (ws) => {
             project.edges.push(msg.edge);
           }
           project.updatedAt = Date.now();
+          markDirty();
         }
         broadcastToRoom(currentClient.projectId, msg, ws);
       } else if (msg.type === 'edge_delete' && currentClient) {
@@ -443,6 +460,7 @@ wss.on('connection', (ws) => {
         if (project) {
           project.edges = project.edges.filter((e) => e.id !== msg.edgeId);
           project.updatedAt = Date.now();
+          markDirty();
         }
         broadcastToRoom(currentClient.projectId, msg, ws);
       } else if (msg.type === 'batch_sync' && currentClient) {
@@ -451,6 +469,7 @@ wss.on('connection', (ws) => {
           project.nodes = msg.nodes;
           project.edges = msg.edges;
           project.updatedAt = Date.now();
+          markDirty();
         }
         broadcastToRoom(currentClient.projectId, msg, ws);
       } else if (msg.type === 'chat' && currentClient) {
@@ -481,9 +500,11 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Debounced save
+// Debounced save - only writes to disk if data was actually modified
 setInterval(() => {
-  persistToDisk();
+  if (isDirty) {
+    persistToDisk();
+  }
 }, 10000);
 
 // Mount Vite or serve static
@@ -493,7 +514,12 @@ async function startServer() {
   if (isDev) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: ['**/data/**', '**/flowcharts.json'],
+        },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

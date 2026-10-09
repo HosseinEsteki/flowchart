@@ -15,6 +15,8 @@ import {
   Check,
   Loader2,
   FolderKanban,
+  Printer,
+  Settings,
 } from 'lucide-react';
 import { THEMES } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
@@ -44,6 +46,7 @@ interface HeaderProps {
   onOpenShortcuts: () => void;
   onOpenVersions: () => void;
   onOpenProjects: () => void;
+  onOpenDefaultSettings?: () => void;
   projectCount?: number;
 }
 
@@ -71,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShortcuts,
   onOpenVersions,
   onOpenProjects,
+  onOpenDefaultSettings,
   projectCount,
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -309,6 +313,38 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Keyboard className="w-4 h-4" />
         </button>
+
+        {/* Default Settings Button */}
+        {onOpenDefaultSettings && (
+          <button
+            onClick={onOpenDefaultSettings}
+            className="p-2 rounded-lg border text-xs font-medium transition-colors hover:opacity-80"
+            style={{
+              borderColor: currentTheme.ui.border,
+              backgroundColor: currentTheme.ui.surface,
+            }}
+            title="تنظیمات پیش‌فرض سایت و اشکال (Default Preferences)"
+          >
+            <Settings className="w-4 h-4 text-blue-500" />
+          </button>
+        )}
+
+        {/* Print Studio Button */}
+        {onOpenPrint && (
+          <button
+            onClick={onOpenPrint}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-xs border hover:opacity-85 transition-all whitespace-nowrap shadow-xs"
+            style={{
+              borderColor: currentTheme.ui.border,
+              backgroundColor: currentTheme.ui.surface,
+              color: currentTheme.ui.textPrimary,
+            }}
+            title="ادیتور کامل چاپ و صفحه‌بندی (Print Layout Studio)"
+          >
+            <Printer className="w-4 h-4 text-blue-500" />
+            <span className="hidden md:inline">ادیتور چاپ</span>
+          </button>
+        )}
 
         {/* Primary Action: Export Button */}
         <button

@@ -36,6 +36,12 @@ interface CanvasProps {
   svgRef: React.RefObject<SVGSVGElement | null>;
   gridMode: 'dots' | 'lines' | 'none';
   snapToGrid: boolean;
+  defaultConnectorSettings?: {
+    lineType: LineType;
+    color: string;
+    strokeWidth: number;
+    style: 'solid' | 'dashed';
+  };
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -62,6 +68,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   svgRef,
   gridMode,
   snapToGrid,
+  defaultConnectorSettings,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -274,10 +281,11 @@ export const Canvas: React.FC<CanvasProps> = ({
         sourcePort: connectingSource.port,
         targetNodeId,
         targetPort,
-        lineType: 'orthogonal',
-        color: theme.isDark ? '#94A3B8' : '#64748B',
-        strokeWidth: 2,
-        style: 'solid',
+        lineType: defaultConnectorSettings?.lineType || 'orthogonal',
+        color:
+          defaultConnectorSettings?.color || (theme.isDark ? '#94A3B8' : '#64748B'),
+        strokeWidth: defaultConnectorSettings?.strokeWidth || 2,
+        style: defaultConnectorSettings?.style || 'solid',
         arrowEnd: true,
       };
       onCreateEdge(newEdge);
@@ -589,19 +597,35 @@ export const Canvas: React.FC<CanvasProps> = ({
                       ((lines.length - 1) * lineHeight) / 2 +
                       node.fontSize * 0.35;
 
+                    const align = node.textAlign || 'center';
+                    let textAnchor: 'start' | 'middle' | 'end' = 'middle';
+                    let textX = node.width / 2;
+
+                    if (align === 'right') {
+                      textAnchor = 'end';
+                      textX = node.width - 12;
+                    } else if (align === 'left') {
+                      textAnchor = 'start';
+                      textX = 12;
+                    }
+
+                    const fontFamily = node.fontFamily || 'Vazirmatn, sans-serif';
+                    const fontStyle = node.fontStyle || 'normal';
+
                     return (
                       <text
                         fill={node.textColor}
                         fontSize={node.fontSize}
-                        fontWeight={node.fontWeight}
-                        fontFamily="Vazirmatn, sans-serif"
-                        textAnchor="middle"
+                        fontWeight={node.fontWeight || 'normal'}
+                        fontStyle={fontStyle}
+                        fontFamily={fontFamily}
+                        textAnchor={textAnchor}
                         className="pointer-events-none select-none"
                       >
                         {lines.map((line, idx) => (
                           <tspan
                             key={idx}
-                            x={node.width / 2}
+                            x={textX}
                             y={startY + idx * lineHeight}
                           >
                             {line || '\u00A0'}
@@ -856,13 +880,15 @@ export const Canvas: React.FC<CanvasProps> = ({
                   }
                 }}
                 placeholder="متن شکل را بنویسید..."
-                className="w-full flex-1 p-2.5 text-center resize-none outline-none border-2 border-blue-500 rounded-t-lg shadow-2xl leading-relaxed"
+                className="w-full flex-1 p-2.5 resize-none outline-none border-2 border-blue-500 rounded-t-lg shadow-2xl leading-relaxed"
                 style={{
                   backgroundColor: theme.ui.cardBg,
                   color: theme.ui.textPrimary,
                   fontSize: `${Math.max(12, node.fontSize * zoom)}px`,
                   fontWeight: node.fontWeight,
-                  fontFamily: 'Vazirmatn, sans-serif',
+                  fontFamily: node.fontFamily || 'Vazirmatn, sans-serif',
+                  fontStyle: node.fontStyle || 'normal',
+                  textAlign: node.textAlign || 'center',
                   minHeight: `${Math.max(60, node.height * zoom)}px`,
                 }}
               />

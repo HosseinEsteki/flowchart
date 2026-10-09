@@ -56,6 +56,7 @@ interface SidebarProps {
   projectTitle?: string;
   projectDescription?: string;
   onUpdateProjectDetails?: (title: string, description: string) => void;
+  onOpenDefaultSettings?: () => void;
   totalNodesCount?: number;
   totalEdgesCount?: number;
 }
@@ -86,6 +87,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   projectTitle,
   projectDescription,
   onUpdateProjectDetails,
+  onOpenDefaultSettings,
   totalNodesCount,
   totalEdgesCount,
 }) => {
@@ -770,6 +772,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Check className="w-4 h-4" />
                 <span>{t.saveChanges}</span>
               </button>
+
+              {/* Default Site Settings Card */}
+              {onOpenDefaultSettings && (
+                <div
+                  className="p-3.5 rounded-xl border space-y-2"
+                  style={{
+                    backgroundColor: theme.ui.surface,
+                    borderColor: theme.ui.border,
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <Settings className="w-4 h-4 text-blue-500" />
+                      <span>تنظیمات پیش‌فرض برنامه</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] opacity-65 leading-relaxed">
+                    تعیین فونت، اندازه، رنگ‌ها و ابعاد پیش‌فرض برای ایجاد اشکال جدید و اتصالات در سراسر برنامه.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onOpenDefaultSettings}
+                    className="w-full py-2 px-3 rounded-lg border text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    style={{ borderColor: theme.ui.border }}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>مدیریت تنظیمات پیش‌فرض</span>
+                  </button>
+                </div>
+              )}
 
               {/* Project Stats & Metadata Box */}
               <div

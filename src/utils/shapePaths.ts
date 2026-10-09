@@ -5,8 +5,9 @@ export function renderNodeShapePath(node: FlowchartNode): {
   props: Record<string, any>;
   auxiliaryElements?: Array<{ element: string; props: Record<string, any> }>;
 } {
-  const { width: w, height: h, type, fill, stroke, strokeWidth, strokeStyle } = node;
+  const { width: w, height: h, type, fill, stroke, strokeWidth, strokeStyle, borderRadius, opacity } = node;
   const strokeDash = strokeStyle === 'dashed' ? '6,4' : strokeStyle === 'dotted' ? '2,3' : undefined;
+  const shapeOpacity = opacity !== undefined ? opacity : 1;
 
   switch (type) {
     case 'terminal':
@@ -24,11 +25,13 @@ export function renderNodeShapePath(node: FlowchartNode): {
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
       };
 
     case 'process':
-      // Rectangle with subtle modern rounding
+      // Rectangle with customizable modern rounding
+      const processRadius = borderRadius !== undefined ? borderRadius : 6;
       return {
         element: 'rect',
         props: {
@@ -36,12 +39,13 @@ export function renderNodeShapePath(node: FlowchartNode): {
           y: 0,
           width: w,
           height: h,
-          rx: 6,
-          ry: 6,
+          rx: processRadius,
+          ry: processRadius,
           fill,
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
       };
 
@@ -57,6 +61,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
           strokeWidth,
           strokeDasharray: strokeDash,
           strokeLinejoin: 'round',
+          opacity: shapeOpacity,
         },
       };
 
@@ -73,6 +78,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
           strokeWidth,
           strokeDasharray: strokeDash,
           strokeLinejoin: 'round',
+          opacity: shapeOpacity,
         },
       };
 
@@ -87,12 +93,14 @@ export function renderNodeShapePath(node: FlowchartNode): {
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
       };
 
     case 'subroutine':
       // Double sided vertical stripes
       const margin = Math.min(16, w * 0.12);
+      const subRadius = borderRadius !== undefined ? borderRadius : 4;
       return {
         element: 'rect',
         props: {
@@ -100,12 +108,13 @@ export function renderNodeShapePath(node: FlowchartNode): {
           y: 0,
           width: w,
           height: h,
-          rx: 4,
-          ry: 4,
+          rx: subRadius,
+          ry: subRadius,
           fill,
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
         auxiliaryElements: [
           {
@@ -118,6 +127,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
               stroke,
               strokeWidth,
               strokeDasharray: strokeDash,
+              opacity: shapeOpacity,
             },
           },
           {
@@ -130,6 +140,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
               stroke,
               strokeWidth,
               strokeDasharray: strokeDash,
+              opacity: shapeOpacity,
             },
           },
         ],
@@ -153,6 +164,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
         auxiliaryElements: [
           {
@@ -165,6 +177,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
               fill,
               stroke,
               strokeWidth,
+              opacity: shapeOpacity,
             },
           },
         ],
@@ -183,6 +196,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
       };
 
@@ -198,6 +212,7 @@ export function renderNodeShapePath(node: FlowchartNode): {
           stroke,
           strokeWidth,
           strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
         },
         auxiliaryElements: [
           {
@@ -205,16 +220,28 @@ export function renderNodeShapePath(node: FlowchartNode): {
             props: {
               points: `${w - fold},0 ${w},${fold} ${w - fold},${fold}`,
               fill: stroke,
-              opacity: 0.35,
+              opacity: 0.35 * shapeOpacity,
             },
           },
         ],
       };
 
     default:
+      const defaultRadius = borderRadius !== undefined ? borderRadius : 4;
       return {
         element: 'rect',
-        props: { x: 0, y: 0, width: w, height: h, fill, stroke, strokeWidth },
+        props: {
+          x: 0,
+          y: 0,
+          width: w,
+          height: h,
+          rx: defaultRadius,
+          ry: defaultRadius,
+          fill,
+          stroke,
+          strokeWidth,
+          opacity: shapeOpacity,
+        },
       };
   }
 }

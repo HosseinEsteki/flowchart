@@ -13,11 +13,18 @@ import {
   FlowchartVersion,
   Collaborator,
   ChatMessage,
+  SiteDefaultSettings,
 } from './types/flowchart';
 import { THEMES } from './constants/themes';
 import { TRANSLATIONS } from './constants/translations';
 import { TEMPLATES } from './constants/templates';
 import { Point, getNodeBoundingBox } from './utils/canvasMath';
+import {
+  getSiteDefaultSettings,
+  saveSiteDefaultSettings,
+  resetSiteDefaultSettings,
+  DEFAULT_SITE_SETTINGS,
+} from './utils/defaultSettings';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { Canvas } from './components/Canvas';
@@ -30,6 +37,7 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { PagesBar } from './components/PagesBar';
 import { ProjectsModal, ProjectSummary } from './components/ProjectsModal';
 import { PrintModal } from './components/PrintModal';
+import { DefaultSettingsModal } from './components/DefaultSettingsModal';
 
 const DEFAULT_PROJECT_ID = 'project-default';
 
@@ -182,6 +190,10 @@ export default function App() {
   // Modals
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [defaultSettingsModalOpen, setDefaultSettingsModalOpen] = useState(false);
+  const [siteDefaultSettings, setSiteDefaultSettings] = useState<SiteDefaultSettings>(() =>
+    getSiteDefaultSettings()
+  );
   const [sidebarTab, setSidebarTab] = useState<'shapes' | 'templates' | 'notes' | 'history' | 'settings'>('shapes');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
@@ -913,14 +925,21 @@ export default function App() {
       width: size.width,
       height: size.height,
       label: defaultLabels[type] || 'گره جدید',
-      fill: pColor.fill,
-      stroke: pColor.stroke,
-      strokeWidth: 2,
-      strokeStyle: 'solid',
-      textColor: pColor.text,
-      fontSize: 13,
-      fontWeight: type === 'terminal' || type === 'decision' ? 'bold' : 'normal',
-      textAlign: 'center',
+      fill: siteDefaultSettings.shapeFill || pColor.fill,
+      stroke: siteDefaultSettings.shapeStroke || pColor.stroke,
+      strokeWidth: siteDefaultSettings.shapeStrokeWidth || 2,
+      strokeStyle: siteDefaultSettings.shapeStrokeStyle || 'solid',
+      textColor: siteDefaultSettings.shapeTextColor || pColor.text,
+      fontSize: siteDefaultSettings.shapeFontSize || 13,
+      fontWeight:
+        type === 'terminal' || type === 'decision'
+          ? 'bold'
+          : siteDefaultSettings.shapeFontWeight || 'normal',
+      fontStyle: siteDefaultSettings.shapeFontStyle || 'normal',
+      textAlign: siteDefaultSettings.shapeTextAlign || 'center',
+      fontFamily: siteDefaultSettings.shapeFontFamily || 'Vazirmatn, sans-serif',
+      borderRadius: siteDefaultSettings.shapeBorderRadius || 6,
+      opacity: siteDefaultSettings.shapeOpacity !== undefined ? siteDefaultSettings.shapeOpacity : 1,
     };
 
     const updatedNodes = [...project.nodes, newNode];
@@ -986,6 +1005,42 @@ export default function App() {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'edge_update', edge }));
     }
+  };
+
+  // --- Site Default Settings Handlers ---
+  const handleSaveDefaultSettings = (newSettings: SiteDefaultSettings) => {
+    setSiteDefaultSettings(newSettings);
+    saveSiteDefaultSettings(newSettings);
+    setGridMode(newSettings.gridMode);
+    setSnapToGrid(newSettings.snapToGrid);
+    if (newSettings.defaultTheme && THEMES[newSettings.defaultTheme]) {
+      setActiveThemeId(newSettings.defaultTheme);
+    }
+  };
+
+  const handleApplyDefaultsToExistingNodes = (settingsToApply: SiteDefaultSettings) => {
+    pushUndo();
+    const updatedNodes = project.nodes.map((n) => ({
+      ...n,
+      fontFamily: settingsToApply.shapeFontFamily,
+      fontSize: settingsToApply.shapeFontSize,
+      fontWeight: settingsToApply.shapeFontWeight,
+      fontStyle: settingsToApply.shapeFontStyle,
+      textAlign: settingsToApply.shapeTextAlign,
+      fill: settingsToApply.shapeFill,
+      stroke: settingsToApply.shapeStroke,
+      strokeWidth: settingsToApply.shapeStrokeWidth,
+      strokeStyle: settingsToApply.shapeStrokeStyle,
+      textColor: settingsToApply.shapeTextColor,
+      borderRadius: settingsToApply.shapeBorderRadius,
+      opacity: settingsToApply.shapeOpacity,
+    }));
+    updateProjectData(updatedNodes, project.edges);
+  };
+
+  const handleResetDefaultSettingsToFactory = () => {
+    const res = resetSiteDefaultSettings();
+    setSiteDefaultSettings(res);
   };
 
   const handleUpdateEdge = (edge: FlowchartEdge) => {
@@ -1277,6 +1332,7 @@ export default function App() {
           loadProjectsList();
           setIsProjectsModalOpen(true);
         }}
+        onOpenDefaultSettings={() => setDefaultSettingsModalOpen(true)}
         projectCount={projectsList.length}
       />
 
@@ -1316,6 +1372,7 @@ export default function App() {
           projectTitle={project.title}
           projectDescription={project.description || ''}
           onUpdateProjectDetails={handleUpdateProjectDetails}
+          onOpenDefaultSettings={() => setDefaultSettingsModalOpen(true)}
           totalNodesCount={project.nodes.length}
           totalEdgesCount={project.edges.length}
         />
@@ -1351,6 +1408,12 @@ export default function App() {
             setPan={setPan}
             gridMode={gridMode}
             snapToGrid={snapToGrid}
+            defaultConnectorSettings={{
+              lineType: siteDefaultSettings.connectorLineType,
+              color: siteDefaultSettings.connectorColor,
+              strokeWidth: siteDefaultSettings.connectorStrokeWidth,
+              style: siteDefaultSettings.connectorStyle,
+            }}
           />
 
           {/* Multi-Page Tabs Bar */}
@@ -1389,6 +1452,7 @@ export default function App() {
           setSnapToGrid={setSnapToGrid}
           nodeCount={project.nodes.length}
           edgeCount={project.edges.length}
+          onOpenDefaultSettings={() => setDefaultSettingsModalOpen(true)}
           onClearCanvas={() => {
             setConfirmDialog({
               isOpen: true,
@@ -1443,6 +1507,12 @@ export default function App() {
         project={project}
         theme={currentTheme}
         t={t}
+        onUpdateProject={(updatedProject) => {
+          setProject(updatedProject);
+          try {
+            localStorage.setItem('flowcraft_backup_project', JSON.stringify(updatedProject));
+          } catch (_) {}
+        }}
       />
 
       <ShortcutsModal
@@ -1497,6 +1567,18 @@ export default function App() {
         cancelLabel={confirmDialog.cancelLabel}
         theme={currentTheme}
         isDestructive={confirmDialog.isDestructive}
+      />
+
+      <DefaultSettingsModal
+        isOpen={defaultSettingsModalOpen}
+        onClose={() => setDefaultSettingsModalOpen(false)}
+        theme={currentTheme}
+        t={t}
+        lang={lang}
+        currentSettings={siteDefaultSettings}
+        onSaveSettings={handleSaveDefaultSettings}
+        onApplyToExistingNodes={handleApplyDefaultsToExistingNodes}
+        onResetToFactory={handleResetDefaultSettingsToFactory}
       />
     </div>
   );
