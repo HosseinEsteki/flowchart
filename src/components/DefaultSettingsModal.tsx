@@ -17,10 +17,11 @@ import {
   Square,
   Eye,
 } from 'lucide-react';
-import { SiteDefaultSettings, LineType } from '../types/flowchart';
+import { SiteDefaultSettings, LineType, FlowchartNodeType, FlowchartNode, ShapeTypeColorConfig } from '../types/flowchart';
 import { ColorTheme, THEMES } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
-import { FONT_OPTIONS, COLOR_SWATCHES, DEFAULT_SITE_SETTINGS } from '../utils/defaultSettings';
+import { FONT_OPTIONS, COLOR_SWATCHES, DEFAULT_SITE_SETTINGS, DEFAULT_SHAPE_TYPE_COLORS } from '../utils/defaultSettings';
+import { renderNodeShapePath } from '../utils/shapePaths';
 
 interface DefaultSettingsModalProps {
   isOpen: boolean;
@@ -34,6 +35,24 @@ interface DefaultSettingsModalProps {
   onResetToFactory?: () => void;
 }
 
+const SHAPE_TYPE_LIST: Array<{
+  type: FlowchartNodeType;
+  label: string;
+  badge: string;
+  desc: string;
+  defaultText: string;
+}> = [
+  { type: 'terminal', label: 'شروع / پایان', badge: 'Terminal', desc: 'بیضی کپسولی برای نقطه آغاز و فرجام جریان فرآیند', defaultText: 'شروع / پایان' },
+  { type: 'process', label: 'عملیات / فرآیند', badge: 'Process', desc: 'مستطیل برای انجام محاسبات، فعالیت‌ها و اقدامات اجرایی', defaultText: 'عملیات فرآیند' },
+  { type: 'decision', label: 'شرط / تصمیم‌گیری', badge: 'Decision', desc: 'لوزی برای ارزیابی شروط، انشعابات بله / خیر و تصمیم‌ها', defaultText: 'آیا معتبر است؟' },
+  { type: 'input-output', label: 'ورودی / خروجی', badge: 'I/O', desc: 'متوازی‌الاضلاع برای دریافت ورودی از کاربر یا صدور خروجی', defaultText: 'دریافت داده‌ها' },
+  { type: 'document', label: 'سند / گزارش', badge: 'Document', desc: 'شکل سند برای گزارش‌های آماری، فاکتورها، اسناد و فرم‌ها', defaultText: 'سند و گزارش' },
+  { type: 'subroutine', label: 'زیرفرآیند / تابع', badge: 'Subroutine', desc: 'مستطیل دوبل برای زیرسیستم‌ها، توابع مجزا و رویه‌ها', defaultText: 'فراخوانی سرویس' },
+  { type: 'database', label: 'پایگاه داده', badge: 'Database', desc: 'استوانه برای ذخیره‌سازی، جستجو و بازیابی داده‌ها', defaultText: 'پایگاه داده' },
+  { type: 'connector', label: 'ارجاع / اتصال‌دهنده', badge: 'Connector', desc: 'دایره برای اتصال بخش‌های مختلف و پرش بین مسیرها', defaultText: 'A' },
+  { type: 'note', label: 'یادداشت / نکته', badge: 'Note', desc: 'برگه یادداشت تاخورده برای توضیحات، نکات کلیدی و هشدارها', defaultText: 'یادداشت توضیحی' },
+];
+
 export const DefaultSettingsModal: React.FC<DefaultSettingsModalProps> = ({
   isOpen,
   onClose,
@@ -46,7 +65,8 @@ export const DefaultSettingsModal: React.FC<DefaultSettingsModalProps> = ({
   onResetToFactory,
 }) => {
   const [draft, setDraft] = useState<SiteDefaultSettings>(currentSettings);
-  const [activeTab, setActiveTab] = useState<'shapes' | 'connectors' | 'canvas'>('shapes');
+  const [activeTab, setActiveTab] = useState<'shapes' | 'shapeColors' | 'connectors' | 'canvas'>('shapes');
+  const [selectedShapeType, setSelectedShapeType] = useState<FlowchartNodeType>('terminal');
   const [isSavedNotice, setIsSavedNotice] = useState(false);
   const [isAppliedNotice, setIsAppliedNotice] = useState(false);
   const [customFontInput, setCustomFontInput] = useState('');
@@ -140,7 +160,18 @@ export const DefaultSettingsModal: React.FC<DefaultSettingsModalProps> = ({
             }`}
           >
             <Type className="w-4 h-4" />
-            <span>اشکال، قلم و رنگ‌ها</span>
+            <span>قلم و ابعاد اشکال</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('shapeColors')}
+            className={`pb-2.5 px-3 border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeTab === 'shapeColors'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
+                : 'border-transparent opacity-70 hover:opacity-100'
+            }`}
+          >
+            <Palette className="w-4 h-4" />
+            <span>رنگ اختصاصی هر شکل</span>
           </button>
           <button
             onClick={() => setActiveTab('connectors')}
@@ -586,7 +617,301 @@ export const DefaultSettingsModal: React.FC<DefaultSettingsModalProps> = ({
             </div>
           )}
 
-          {/* ================= TAB 2: CONNECTORS ================= */}
+          {/* ================= TAB 2: SHAPE-SPECIFIC COLORS ================= */}
+          {activeTab === 'shapeColors' && (
+            <div className="space-y-4">
+              {/* Header / Intro Card */}
+              <div
+                className="p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+                style={{ backgroundColor: theme.ui.surface, borderColor: theme.ui.border }}
+              >
+                <div className="flex items-center gap-2">
+                  <Palette className="w-5 h-5 text-indigo-500 shrink-0" />
+                  <div>
+                    <span className="font-bold block">رنگ‌بندی منحصربه‌فرد برای هر نوع شکل</span>
+                    <span className="opacity-70 text-[11px]">
+                      هر شکل دارای رنگ زمینه، کادر و متن اختصاصی است تا در فلوچارت به‌راحتی تفکیک شود.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft((s) => ({
+                      ...s,
+                      shapeTypeColors: { ...DEFAULT_SHAPE_TYPE_COLORS },
+                    }));
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0 cursor-pointer"
+                  style={{ borderColor: theme.ui.border }}
+                >
+                  بازنشانی همه اشکال به حالت استاندارد
+                </button>
+              </div>
+
+              {/* Shape Type Selector Grid */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold block">انتخاب شکل جهت سفارشی‌سازی رنگ:</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {SHAPE_TYPE_LIST.map((item) => {
+                    const typeColor =
+                      draft.shapeTypeColors?.[item.type] || DEFAULT_SHAPE_TYPE_COLORS[item.type];
+                    const isSelected = selectedShapeType === item.type;
+                    return (
+                      <button
+                        key={item.type}
+                        type="button"
+                        onClick={() => setSelectedShapeType(item.type)}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-right transition-all cursor-pointer ${
+                          isSelected
+                            ? 'ring-2 ring-blue-500 border-blue-500 shadow-sm font-bold bg-blue-50/60 dark:bg-blue-950/40'
+                            : 'hover:opacity-90'
+                        }`}
+                        style={{
+                          backgroundColor: isSelected ? undefined : theme.ui.surface,
+                          borderColor: isSelected ? undefined : theme.ui.border,
+                        }}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs truncate">{item.label}</div>
+                          <div className="text-[10px] opacity-60 font-mono">{item.badge}</div>
+                        </div>
+                        {/* Mini preview pill */}
+                        <div
+                          className="w-7 h-7 rounded-lg border shrink-0 flex items-center justify-center text-[10px] font-bold shadow-2xs"
+                          style={{
+                            backgroundColor: typeColor.fill === 'transparent' ? '#FFFFFF' : typeColor.fill,
+                            borderColor: typeColor.stroke,
+                            color: typeColor.textColor,
+                            borderWidth: '2px',
+                          }}
+                        >
+                          Aa
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Detail Customizer for Selected Shape */}
+              {(() => {
+                const selectedItem =
+                  SHAPE_TYPE_LIST.find((item) => item.type === selectedShapeType) || SHAPE_TYPE_LIST[0];
+                const currentColor =
+                  draft.shapeTypeColors?.[selectedItem.type] || DEFAULT_SHAPE_TYPE_COLORS[selectedItem.type];
+
+                const previewNode: FlowchartNode = {
+                  id: 'preview',
+                  type: selectedItem.type,
+                  x: 10,
+                  y: 10,
+                  width: 180,
+                  height: 70,
+                  label: selectedItem.defaultText,
+                  fill: currentColor.fill,
+                  stroke: currentColor.stroke,
+                  strokeWidth: 2,
+                  strokeStyle: 'solid',
+                  textColor: currentColor.textColor,
+                  fontSize: 13,
+                  fontWeight: 'bold',
+                  textAlign: 'center',
+                  fontFamily: draft.shapeFontFamily || 'Vazirmatn, sans-serif',
+                  borderRadius: 8,
+                };
+
+                const shapeRender = renderNodeShapePath(previewNode);
+
+                const updateSelectedColor = (partial: Partial<ShapeTypeColorConfig>) => {
+                  setDraft((s) => ({
+                    ...s,
+                    shapeTypeColors: {
+                      ...DEFAULT_SHAPE_TYPE_COLORS,
+                      ...(s.shapeTypeColors || {}),
+                      [selectedItem.type]: {
+                        ...currentColor,
+                        ...partial,
+                      },
+                    },
+                  }));
+                };
+
+                return (
+                  <div
+                    className="p-4 rounded-xl border space-y-4"
+                    style={{ backgroundColor: theme.ui.surface, borderColor: theme.ui.border }}
+                  >
+                    <div
+                      className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm flex items-center gap-2">
+                          <span>رنگ اختصاصی:</span>
+                          <span className="text-blue-600 dark:text-blue-400">{selectedItem.label}</span>
+                        </div>
+                        <p className="text-[11px] opacity-65 mt-0.5">{selectedItem.desc}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateSelectedColor(DEFAULT_SHAPE_TYPE_COLORS[selectedItem.type]);
+                        }}
+                        className="px-2.5 py-1 text-[11px] rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer text-blue-600 dark:text-blue-400 font-semibold"
+                        style={{ borderColor: theme.ui.border }}
+                      >
+                        بازنشانی این شکل به پیش‌فرض
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                      {/* Live SVG Preview */}
+                      <div className="md:col-span-5 flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-950/50 rounded-xl border border-slate-200 dark:border-slate-800 shadow-inner min-h-[140px]">
+                        <div className="text-[10px] opacity-60 mb-2 font-semibold">پیش‌نمایش شکل:</div>
+                        <svg width="200" height="90" viewBox="0 0 200 90" className="overflow-visible">
+                          <g transform="translate(10, 10)">
+                            {shapeRender.element === 'rect' && <rect {...shapeRender.props} />}
+                            {shapeRender.element === 'polygon' && <polygon {...shapeRender.props} />}
+                            {shapeRender.element === 'circle' && <circle {...shapeRender.props} />}
+                            {shapeRender.element === 'path' && <path {...shapeRender.props} />}
+                            {shapeRender.auxiliaryElements?.map((aux, i) => {
+                              if (aux.element === 'line') return <line key={i} {...aux.props} />;
+                              if (aux.element === 'ellipse') return <ellipse key={i} {...aux.props} />;
+                              if (aux.element === 'polygon') return <polygon key={i} {...aux.props} />;
+                              return null;
+                            })}
+                            <text
+                              x="90"
+                              y="39"
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              fill={currentColor.textColor}
+                              fontSize="12"
+                              fontWeight="bold"
+                              fontFamily={draft.shapeFontFamily}
+                            >
+                              {selectedItem.defaultText}
+                            </text>
+                          </g>
+                        </svg>
+                      </div>
+
+                      {/* Color controls */}
+                      <div className="md:col-span-7 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          {/* Fill */}
+                          <div className="p-2.5 rounded-xl border space-y-1" style={{ borderColor: theme.ui.border, backgroundColor: theme.ui.cardBg }}>
+                            <label className="text-[11px] font-semibold block">رنگ پس‌زمینه (Fill):</label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="color"
+                                value={currentColor.fill === 'transparent' ? '#ffffff' : currentColor.fill}
+                                onChange={(e) => updateSelectedColor({ fill: e.target.value })}
+                                className="w-7 h-7 rounded border cursor-pointer shrink-0"
+                              />
+                              <input
+                                type="text"
+                                value={currentColor.fill}
+                                onChange={(e) => updateSelectedColor({ fill: e.target.value })}
+                                className="w-full px-1.5 py-1 text-[11px] rounded border font-mono uppercase bg-transparent outline-none"
+                                style={{ borderColor: theme.ui.border }}
+                              />
+                            </div>
+                            <label className="flex items-center gap-1 text-[10px] pt-0.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={currentColor.fill === 'transparent'}
+                                onChange={(e) =>
+                                  updateSelectedColor({
+                                    fill: e.target.checked
+                                      ? 'transparent'
+                                      : DEFAULT_SHAPE_TYPE_COLORS[selectedItem.type].fill,
+                                  })
+                                }
+                                className="rounded accent-blue-600 w-3 h-3"
+                              />
+                              <span className="opacity-75">شفاف</span>
+                            </label>
+                          </div>
+
+                          {/* Stroke */}
+                          <div className="p-2.5 rounded-xl border space-y-1" style={{ borderColor: theme.ui.border, backgroundColor: theme.ui.cardBg }}>
+                            <label className="text-[11px] font-semibold block">رنگ خط دور (Stroke):</label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="color"
+                                value={currentColor.stroke}
+                                onChange={(e) => updateSelectedColor({ stroke: e.target.value })}
+                                className="w-7 h-7 rounded border cursor-pointer shrink-0"
+                              />
+                              <input
+                                type="text"
+                                value={currentColor.stroke}
+                                onChange={(e) => updateSelectedColor({ stroke: e.target.value })}
+                                className="w-full px-1.5 py-1 text-[11px] rounded border font-mono uppercase bg-transparent outline-none"
+                                style={{ borderColor: theme.ui.border }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Text Color */}
+                          <div className="p-2.5 rounded-xl border space-y-1" style={{ borderColor: theme.ui.border, backgroundColor: theme.ui.cardBg }}>
+                            <label className="text-[11px] font-semibold block">رنگ متن (Text):</label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="color"
+                                value={currentColor.textColor}
+                                onChange={(e) => updateSelectedColor({ textColor: e.target.value })}
+                                className="w-7 h-7 rounded border cursor-pointer shrink-0"
+                              />
+                              <input
+                                type="text"
+                                value={currentColor.textColor}
+                                onChange={(e) => updateSelectedColor({ textColor: e.target.value })}
+                                className="w-full px-1.5 py-1 text-[11px] rounded border font-mono uppercase bg-transparent outline-none"
+                                style={{ borderColor: theme.ui.border }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick Swatches */}
+                        <div className="space-y-1 pt-1">
+                          <span className="text-[11px] opacity-70 block font-semibold">پالت‌های آماده برای این شکل:</span>
+                          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1">
+                            {COLOR_SWATCHES.map((sw) => (
+                              <button
+                                key={sw.name}
+                                type="button"
+                                onClick={() =>
+                                  updateSelectedColor({
+                                    fill: sw.fill,
+                                    stroke: sw.stroke,
+                                    textColor: sw.text,
+                                  })
+                                }
+                                className="h-7 rounded-lg border flex items-center justify-center transition-transform hover:scale-105 cursor-pointer shadow-2xs"
+                                style={{
+                                  backgroundColor: sw.fill === 'transparent' ? '#FFFFFF' : sw.fill,
+                                  borderColor: sw.stroke,
+                                }}
+                                title={sw.name}
+                              >
+                                <span className="text-[9px] font-bold" style={{ color: sw.text }}>
+                                  Aa
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
           {activeTab === 'connectors' && (
             <div className="space-y-4">
               <div className="space-y-2">

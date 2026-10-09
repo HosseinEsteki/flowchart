@@ -19,6 +19,7 @@ import { THEMES } from './constants/themes';
 import { TRANSLATIONS } from './constants/translations';
 import { TEMPLATES } from './constants/templates';
 import { Point, getNodeBoundingBox } from './utils/canvasMath';
+import { trimNodeTextAndAdjustHeight } from './utils/shapePaths';
 import {
   getSiteDefaultSettings,
   saveSiteDefaultSettings,
@@ -44,11 +45,17 @@ const DEFAULT_PROJECT_ID = 'project-default';
 function ensureProjectPages(p: FlowchartProject): FlowchartProject {
   const pages =
     p.pages && p.pages.length > 0
-      ? p.pages
+      ? p.pages.map((pg) => ({
+          ...pg,
+          description: pg.description !== undefined ? pg.description : '',
+          notes: pg.notes !== undefined ? pg.notes : '',
+        }))
       : [
           {
             id: 'page-1',
             name: 'صفحه ۱',
+            description: '',
+            notes: '',
             nodes: p.nodes || [],
             edges: p.edges || [],
           },
@@ -564,6 +571,8 @@ export default function App() {
       const newPage: FlowchartPage = {
         id: newPageId,
         name: newPageName,
+        description: '',
+        notes: '',
         nodes: [],
         edges: [],
       };
@@ -620,6 +629,8 @@ export default function App() {
       const newPage: FlowchartPage = {
         id: newPageId,
         name: `${targetPage.name} (کپی)`,
+        description: targetPage.description || '',
+        notes: targetPage.notes || '',
         nodes: duplicatedNodes,
         edges: duplicatedEdges,
       };
@@ -706,7 +717,22 @@ export default function App() {
       const updated: FlowchartProject = {
         ...prev,
         pages: updatedPages,
-        description: pageId === prev.activePageId ? description : prev.description,
+        updatedAt: Date.now(),
+      };
+      triggerCloudSave(updated);
+      return updated;
+    });
+  };
+
+  const handleUpdatePageNotes = (pageId: string, notes: string) => {
+    setProject((prev) => {
+      const curPages = prev.pages || [];
+      const updatedPages = curPages.map((pg) =>
+        pg.id === pageId ? { ...pg, notes } : pg
+      );
+      const updated: FlowchartProject = {
+        ...prev,
+        pages: updatedPages,
         updatedAt: Date.now(),
       };
       triggerCloudSave(updated);
@@ -904,6 +930,7 @@ export default function App() {
     const size = baseSizes[type] || { width: 150, height: 75 };
     const paletteKey = type === 'input-output' ? 'inputOutput' : type;
     const pColor = currentTheme.palette[paletteKey] || currentTheme.palette.process;
+    const customTypeColor = siteDefaultSettings.shapeTypeColors?.[type];
 
     const defaultLabels: Record<FlowchartNodeType, string> = {
       terminal: 'شروع / پایان',
@@ -925,11 +952,11 @@ export default function App() {
       width: size.width,
       height: size.height,
       label: defaultLabels[type] || 'گره جدید',
-      fill: siteDefaultSettings.shapeFill || pColor.fill,
-      stroke: siteDefaultSettings.shapeStroke || pColor.stroke,
+      fill: customTypeColor?.fill || pColor.fill,
+      stroke: customTypeColor?.stroke || pColor.stroke,
       strokeWidth: siteDefaultSettings.shapeStrokeWidth || 2,
       strokeStyle: siteDefaultSettings.shapeStrokeStyle || 'solid',
-      textColor: siteDefaultSettings.shapeTextColor || pColor.text,
+      textColor: customTypeColor?.textColor || pColor.text,
       fontSize: siteDefaultSettings.shapeFontSize || 13,
       fontWeight:
         type === 'terminal' || type === 'decision'
@@ -959,6 +986,12 @@ export default function App() {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'node_update', node }));
     }
+  };
+
+  const handleTrimAllNodes = () => {
+    pushUndo();
+    const updatedNodes = project.nodes.map((n) => trimNodeTextAndAdjustHeight(n));
+    updateProjectData(updatedNodes, project.edges);
   };
 
   const handleDeleteNode = (nodeId: string) => {
@@ -1020,21 +1053,24 @@ export default function App() {
 
   const handleApplyDefaultsToExistingNodes = (settingsToApply: SiteDefaultSettings) => {
     pushUndo();
-    const updatedNodes = project.nodes.map((n) => ({
-      ...n,
-      fontFamily: settingsToApply.shapeFontFamily,
-      fontSize: settingsToApply.shapeFontSize,
-      fontWeight: settingsToApply.shapeFontWeight,
-      fontStyle: settingsToApply.shapeFontStyle,
-      textAlign: settingsToApply.shapeTextAlign,
-      fill: settingsToApply.shapeFill,
-      stroke: settingsToApply.shapeStroke,
-      strokeWidth: settingsToApply.shapeStrokeWidth,
-      strokeStyle: settingsToApply.shapeStrokeStyle,
-      textColor: settingsToApply.shapeTextColor,
-      borderRadius: settingsToApply.shapeBorderRadius,
-      opacity: settingsToApply.shapeOpacity,
-    }));
+    const updatedNodes = project.nodes.map((n) => {
+      const typeColor = settingsToApply.shapeTypeColors?.[n.type];
+      return {
+        ...n,
+        fontFamily: settingsToApply.shapeFontFamily,
+        fontSize: settingsToApply.shapeFontSize,
+        fontWeight: settingsToApply.shapeFontWeight,
+        fontStyle: settingsToApply.shapeFontStyle,
+        textAlign: settingsToApply.shapeTextAlign,
+        fill: typeColor?.fill || settingsToApply.shapeFill || n.fill,
+        stroke: typeColor?.stroke || settingsToApply.shapeStroke || n.stroke,
+        strokeWidth: settingsToApply.shapeStrokeWidth,
+        strokeStyle: settingsToApply.shapeStrokeStyle,
+        textColor: typeColor?.textColor || settingsToApply.shapeTextColor || n.textColor,
+        borderRadius: settingsToApply.shapeBorderRadius,
+        opacity: settingsToApply.shapeOpacity,
+      };
+    });
     updateProjectData(updatedNodes, project.edges);
   };
 
@@ -1360,7 +1396,8 @@ export default function App() {
             (project.pages || []).find((p) => p.id === (project.activePageId || 'page-1')) || {
               id: project.activePageId || 'page-1',
               name: 'صفحه ۱',
-              description: project.description,
+              description: '',
+              notes: '',
               nodes: project.nodes,
               edges: project.edges,
             }
@@ -1368,6 +1405,7 @@ export default function App() {
           allPages={project.pages}
           onSelectPage={handleSelectPage}
           onUpdatePageDescription={handleUpdatePageDescription}
+          onUpdatePageNotes={handleUpdatePageNotes}
           onOpenPrint={() => setPrintModalOpen(true)}
           projectTitle={project.title}
           projectDescription={project.description || ''}
@@ -1452,6 +1490,7 @@ export default function App() {
           setSnapToGrid={setSnapToGrid}
           nodeCount={project.nodes.length}
           edgeCount={project.edges.length}
+          onTrimAllNodes={handleTrimAllNodes}
           onOpenDefaultSettings={() => setDefaultSettingsModalOpen(true)}
           onClearCanvas={() => {
             setConfirmDialog({

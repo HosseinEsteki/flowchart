@@ -23,6 +23,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { FONT_OPTIONS, COLOR_SWATCHES } from '../utils/defaultSettings';
+import { trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
 
 interface PropertiesPanelProps {
   theme: ColorTheme;
@@ -42,6 +43,7 @@ interface PropertiesPanelProps {
   edgeCount: number;
   onClearCanvas: () => void;
   onOpenDefaultSettings?: () => void;
+  onTrimAllNodes?: () => void;
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -62,6 +64,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   edgeCount,
   onClearCanvas,
   onOpenDefaultSettings,
+  onTrimAllNodes,
 }) => {
   const [customFontInput, setCustomFontInput] = useState('');
 
@@ -114,7 +117,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold">{t.text}</label>
-              <span className="text-[10px] opacity-60">چندخطی (Enter)</span>
+              <span className="text-[10px] opacity-60">Shift+Enter = خط جدید | Enter = ثبت</span>
             </div>
             <textarea
               rows={3}
@@ -130,7 +133,23 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   height: updatedHeight,
                 });
               }}
-              placeholder="متن شکل را بنویسید (Enter برای خط جدید)..."
+              onBlur={() => {
+                const cleaned = trimShapeText(selectedNode.label);
+                if (cleaned !== selectedNode.label) {
+                  const updated = trimNodeTextAndAdjustHeight({ ...selectedNode, label: cleaned });
+                  onUpdateNode(updated);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  const cleaned = trimShapeText(selectedNode.label);
+                  const updated = trimNodeTextAndAdjustHeight({ ...selectedNode, label: cleaned });
+                  onUpdateNode(updated);
+                  (e.target as HTMLElement).blur();
+                }
+              }}
+              placeholder="متن شکل را بنویسید (Shift+Enter برای خط جدید، Enter برای ثبت)..."
               className="w-full px-2.5 py-1.5 text-xs rounded-xl border outline-none resize-y leading-relaxed font-medium transition-colors focus:border-blue-500"
               style={{
                 backgroundColor: theme.ui.surface,
@@ -139,6 +158,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 fontFamily: selectedNode.fontFamily || 'Vazirmatn, sans-serif',
               }}
             />
+            {/* Quick helper under textarea */}
+            <div className="flex items-center justify-between text-[10px] opacity-70 px-0.5">
+              <span>طول متن: {(selectedNode.label || '').length} کاراکتر</span>
+              <span className="text-emerald-600 dark:text-emerald-400">پاکسازی خودکار فاصله‌ها فعال است</span>
+            </div>
           </div>
 
           {/* ================= FONT & TYPOGRAPHY ================= */}

@@ -158,14 +158,14 @@ export const PagesBar: React.FC<PagesBarProps> = ({
                     {page.nodes.length}
                   </span>
 
-                  {page.description && page.description.trim() ? (
+                  {(page.description && page.description.trim()) || (page.notes && page.notes.trim()) ? (
                     <span
                       onClick={(e) => {
                         e.stopPropagation();
                         onOpenPageNotes(page.id);
                       }}
                       className="text-amber-400 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10"
-                      title="مشاهده مستندات این صفحه در سایدبار"
+                      title="مشاهده مستندات و نکات این صفحه در سایدبار"
                     >
                       <FileText className="w-3 h-3" />
                     </span>

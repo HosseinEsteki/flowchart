@@ -333,7 +333,8 @@ export function generatePrintReportHtml(
           {
             id: 'p1',
             name: 'صفحه اصلی',
-            description: project.description,
+            description: '',
+            notes: '',
             nodes: project.nodes,
             edges: project.edges,
           },
@@ -1182,7 +1183,8 @@ export async function exportMultiPagePdf(
           {
             id: 'p1',
             name: 'صفحه اصلی',
-            description: project.description,
+            description: '',
+            notes: '',
             nodes: project.nodes,
             edges: project.edges,
           },

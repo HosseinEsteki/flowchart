@@ -9,8 +9,8 @@ import {
 import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
 import { getPortPosition, calculateEdgePath, Point, getNodeBoundingBox } from '../utils/canvasMath';
-import { renderNodeShapePath } from '../utils/shapePaths';
-import { Trash2, Copy, Bold, Type, CornerDownRight, Compass } from 'lucide-react';
+import { renderNodeShapePath, trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
+import { Trash2, Copy, Bold, Type, CornerDownRight, Compass, Sparkles } from 'lucide-react';
 
 interface CanvasProps {
   theme: ColorTheme;
@@ -296,23 +296,53 @@ export const Canvas: React.FC<CanvasProps> = ({
     setTempEdgePos(null);
   };
 
-  // Double click node to edit text
+  // Double click node to edit text (preserves existing text for editing)
   const handleNodeDoubleClick = (e: React.MouseEvent, node: FlowchartNode) => {
     e.stopPropagation();
     setEditingNodeId(node.id);
     setEditingText(node.label);
   };
 
+  // Keyboard typing on selected node: typing any character immediately enters edit mode and REPLACES text!
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        editingNodeId ||
+        editingEdgeId ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (selectedNodeId) {
+        // Check if printable character key was pressed (length 1, no Ctrl/Cmd/Alt)
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          setEditingNodeId(selectedNodeId);
+          setEditingText(e.key);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [selectedNodeId, editingNodeId, editingEdgeId]);
+
   const handleFinishEditingText = () => {
     if (editingNodeId) {
       const node = nodes.find((n) => n.id === editingNodeId);
-      if (node && editingText !== '') {
-        const lines = editingText.split('\n');
+      if (node) {
+        // Automatic trimming of extra enters and spaces
+        const cleaned = trimShapeText(editingText);
+        const lines = (cleaned || ' ').split('\n');
         const minReqHeight = Math.round(lines.length * (node.fontSize * 1.35) + 26);
         const updatedHeight = Math.max(node.height, minReqHeight);
         onUpdateNode({
           ...node,
-          label: editingText,
+          label: cleaned,
           height: updatedHeight,
         });
       }
@@ -868,18 +898,31 @@ export const Canvas: React.FC<CanvasProps> = ({
             >
               <textarea
                 autoFocus
+                ref={(el) => {
+                  if (el) {
+                    el.focus();
+                    el.setSelectionRange(el.value.length, el.value.length);
+                  }
+                }}
                 value={editingText}
                 onChange={(e) => setEditingText(e.target.value)}
                 onBlur={handleFinishEditingText}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    handleFinishEditingText();
+                  if (e.key === 'Enter') {
+                    if (e.shiftKey) {
+                      // Shift + Enter: creates a new line
+                      return;
+                    } else {
+                      // Enter: commits and saves!
+                      e.preventDefault();
+                      handleFinishEditingText();
+                    }
                   } else if (e.key === 'Escape') {
+                    e.preventDefault();
                     setEditingNodeId(null);
                   }
                 }}
-                placeholder="متن شکل را بنویسید..."
+                placeholder="متن شکل را بنویسید (Shift+Enter برای خط جدید، Enter برای ثبت)..."
                 className="w-full flex-1 p-2.5 resize-none outline-none border-2 border-blue-500 rounded-t-lg shadow-2xl leading-relaxed"
                 style={{
                   backgroundColor: theme.ui.cardBg,
@@ -893,10 +936,11 @@ export const Canvas: React.FC<CanvasProps> = ({
                 }}
               />
               <div
-                className="w-full text-[10px] text-center bg-blue-600 text-white rounded-b-lg px-2 py-0.5 shadow-md flex items-center justify-between font-mono select-none"
+                className="w-full text-[10px] text-center bg-blue-600 text-white rounded-b-lg px-2.5 py-1 shadow-md flex items-center justify-between font-sans select-none"
               >
-                <span>Enter = خط بعدی</span>
-                <span>Ctrl+Enter = ثبت</span>
+                <span>Shift+Enter = خط جدید</span>
+                <span className="opacity-80">پاکسازی خودکار فاصله‌ها</span>
+                <span>Enter = ثبت</span>
               </div>
             </div>
           );

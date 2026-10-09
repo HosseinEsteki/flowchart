@@ -24,6 +24,7 @@ import {
   Printer,
   Settings,
   FolderKanban,
+  Lightbulb,
 } from 'lucide-react';
 import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage, FlowchartPage } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
@@ -52,6 +53,7 @@ interface SidebarProps {
   allPages?: FlowchartPage[];
   onSelectPage?: (pageId: string) => void;
   onUpdatePageDescription?: (pageId: string, description: string) => void;
+  onUpdatePageNotes?: (pageId: string, notes: string) => void;
   onOpenPrint?: () => void;
   projectTitle?: string;
   projectDescription?: string;
@@ -83,6 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   allPages,
   onSelectPage,
   onUpdatePageDescription,
+  onUpdatePageNotes,
   onOpenPrint,
   projectTitle,
   projectDescription,
@@ -120,21 +123,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const activeTab = activeTabProp !== undefined ? activeTabProp : internalTab;
   const isCollapsed = isCollapsedProp !== undefined ? isCollapsedProp : internalCollapsed;
 
-  const [notesDraft, setNotesDraft] = useState(activePage?.description || '');
+  // Active page description and key notes
+  const [descDraft, setDescDraft] = useState(activePage?.description || '');
+  const [notesDraft, setNotesDraft] = useState(activePage?.notes || '');
 
   useEffect(() => {
-    setNotesDraft(activePage?.description || '');
-  }, [activePage?.id, activePage?.description]);
+    setDescDraft(activePage?.description || '');
+    setNotesDraft(activePage?.notes || '');
+  }, [activePage?.id, activePage?.description, activePage?.notes]);
 
-  const handleNotesChange = (text: string) => {
-    setNotesDraft(text);
+  const handleDescChange = (text: string) => {
+    setDescDraft(text);
     if (activePage && onUpdatePageDescription) {
       onUpdatePageDescription(activePage.id, text);
     }
   };
 
-  const appendSnippet = (snippet: string) => {
-    const updated = notesDraft ? `${notesDraft}\n\n${snippet}` : snippet;
+  const handleNotesChange = (text: string) => {
+    setNotesDraft(text);
+    if (activePage && onUpdatePageNotes) {
+      onUpdatePageNotes(activePage.id, text);
+    }
+  };
+
+  const appendDescSnippet = (snippet: string) => {
+    const updated = descDraft ? `${descDraft}\n\n${snippet}` : snippet;
+    handleDescChange(updated);
+  };
+
+  const appendNotesSnippet = (snippet: string) => {
+    const updated = notesDraft ? `${notesDraft}\n${snippet}` : snippet;
     handleNotesChange(updated);
   };
 
@@ -306,7 +324,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
           >
             <FileText className="w-5 h-5" />
-            {activePage?.description && activePage.description.trim() ? (
+            {((activePage?.description && activePage.description.trim()) ||
+              (activePage?.notes && activePage.notes.trim())) ? (
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
             ) : null}
           </button>
@@ -452,8 +471,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 font-bold text-xs">
-                    <FileText className="w-4 h-4 text-amber-500" />
-                    <span>{t.pageNotes}</span>
+                    <FileText className="w-4 h-4 text-blue-500" />
+                    <span>توضیحات و نکات صفحه</span>
                   </div>
                   {allPages && allPages.length > 1 && (
                     <select
@@ -480,20 +499,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     صفحه: <strong>{activePage?.name || 'صفحه ۱'}</strong>
                   </span>
                   <span className="font-mono text-[10px]">
-                    {notesDraft.length} حرف · {notesDraft.trim() ? notesDraft.trim().split(/\s+/).length : 0} کلمه
+                    {descDraft.length + notesDraft.length} حرف
                   </span>
                 </div>
               </div>
 
               {/* Scrollable Editor Area */}
-              <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
-                {/* Fast Snippet Templates */}
-                <div className="space-y-1">
-                  <span className="text-[10px] font-semibold opacity-60 block">درج سریع بخش‌های استاندارد:</span>
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
+                {/* 1. SECTION: PAGE DESCRIPTION (توضیحات فرآیند) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-blue-600 dark:text-blue-400">
+                      <FileText className="w-4 h-4" />
+                      <span>توضیحات فرآیند (صفحه فعلی)</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-normal">
+                        مختص صفحه جاری
+                      </span>
+                    </div>
+                    {descDraft && (
+                      <button
+                        type="button"
+                        onClick={() => handleDescChange('')}
+                        className="text-[10px] opacity-50 hover:opacity-100 hover:text-red-500 transition-colors cursor-pointer"
+                      >
+                        پاک کردن
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] opacity-65 leading-relaxed">
+                    توضیحات کلی، هدف این فلوچارت یا نیازمندی‌های این صفحه (مستقل از شرح کلی پروژه):
+                  </p>
+
+                  {/* Fast Snippet Templates for Description */}
                   <div className="flex items-center gap-1 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => appendSnippet('🎯 هدف فرآیند:\n')}
+                      onClick={() => appendDescSnippet('🎯 هدف فرآیند:\n')}
                       className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                       style={{ borderColor: theme.ui.border }}
                     >
@@ -501,7 +542,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => appendSnippet('📋 پیش‌نیازها:\n- ')}
+                      onClick={() => appendDescSnippet('📋 پیش‌نیازها:\n- ')}
                       className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                       style={{ borderColor: theme.ui.border }}
                     >
@@ -509,54 +550,109 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => appendSnippet('👥 مسئولین اجرا:\n- ')}
+                      onClick={() => appendDescSnippet('👥 مسئولین اجرا:\n- ')}
                       className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                       style={{ borderColor: theme.ui.border }}
                     >
                       + مسئولین
                     </button>
+                  </div>
+
+                  <div className="relative">
+                    <textarea
+                      value={descDraft}
+                      onChange={(e) => handleDescChange(e.target.value)}
+                      placeholder="توضیحات و مستندات مخصوص این صفحه را اینجا بنویسید (در صفحه چاپ منعکس می‌شود)..."
+                      rows={5}
+                      className="w-full text-xs leading-relaxed p-2.5 rounded-xl border outline-none resize-y transition-all focus:ring-2 focus:ring-blue-500/40 font-normal"
+                      style={{
+                        backgroundColor: theme.ui.surface,
+                        borderColor: theme.ui.border,
+                        color: theme.ui.textPrimary,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* 2. SECTION: KEY NOTES & CONSIDERATIONS (نکات و ملاحظات این صفحه) */}
+                <div className="pt-3 border-t space-y-2" style={{ borderColor: theme.ui.border }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-amber-600 dark:text-amber-400">
+                      <Lightbulb className="w-4 h-4" />
+                      <span>نکات و ملاحظات این صفحه</span>
+                    </div>
+                    {notesDraft && (
+                      <button
+                        type="button"
+                        onClick={() => handleNotesChange('')}
+                        className="text-[10px] opacity-50 hover:opacity-100 hover:text-red-500 transition-colors cursor-pointer"
+                      >
+                        پاک کردن
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] opacity-65 leading-relaxed">
+                    الزامات اجرایی، هشدارها یا نکات کلیدی این صفحه را بنویسید (در هر خط یا با نشان •):
+                  </p>
+
+                  {/* Fast Snippet Templates for Notes */}
+                  <div className="flex items-center gap-1 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => appendSnippet('📌 نکات کلیدی:\n- ')}
+                      onClick={() => appendNotesSnippet('• نکته: ')}
                       className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                       style={{ borderColor: theme.ui.border }}
                     >
-                      + نکات
+                      + نکته
                     </button>
-                  </div>
-                </div>
-
-                {/* Textarea */}
-                <div className="relative">
-                  <textarea
-                    value={notesDraft}
-                    onChange={(e) => handleNotesChange(e.target.value)}
-                    placeholder={t.pageNotesPlaceholder}
-                    rows={12}
-                    className="w-full text-xs leading-relaxed p-3 rounded-xl border outline-none resize-none transition-all focus:ring-2 focus:ring-blue-500/40 font-normal"
-                    style={{
-                      backgroundColor: theme.ui.surface,
-                      borderColor: theme.ui.border,
-                      color: theme.ui.textPrimary,
-                    }}
-                  />
-                </div>
-
-                {/* Auto-save indicator & Clear */}
-                <div className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                    <Check className="w-3.5 h-3.5" />
-                    <span>ذخیره خودکار در پروژه فعال است</span>
-                  </div>
-                  {notesDraft && (
                     <button
                       type="button"
-                      onClick={() => handleNotesChange('')}
-                      className="text-[10px] opacity-50 hover:opacity-100 hover:text-red-500 transition-colors cursor-pointer"
+                      onClick={() => appendNotesSnippet('⚠️ هشدار: ')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
                     >
-                      پاک کردن متن
+                      + هشدار
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => appendNotesSnippet('📌 الزام اجرایی: ')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      + الزام
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => appendNotesSnippet('✅ تاییدیه: ')}
+                      className="text-[10px] px-2 py-0.5 rounded-md border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      + تاییدیه
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <textarea
+                      value={notesDraft}
+                      onChange={(e) => handleNotesChange(e.target.value)}
+                      placeholder="• نکته ۱: رعایت زمان‌بندی حداکثر ۲۴ ساعته در این مرحله الزامی است...&#10;• نکته ۲: تاییدیه نهایی مدیر سیستم‌ها دریافت گردد..."
+                      rows={4}
+                      className="w-full text-xs leading-relaxed p-2.5 rounded-xl border outline-none resize-y transition-all focus:ring-2 focus:ring-amber-500/40 font-normal"
+                      style={{
+                        backgroundColor: theme.ui.surface,
+                        borderColor: theme.ui.border,
+                        color: theme.ui.textPrimary,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Auto-save & Print sync indicator */}
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t" style={{ borderColor: theme.ui.border }}>
+                  <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>ذخیره خودکار و همگام با چاپ فعال است</span>
+                  </div>
                 </div>
 
                 {/* Info Card */}
@@ -568,12 +664,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                 >
                   <div className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                    <span>💡 نمایش خودکار در خروجی‌ها</span>
+                    <span>💡 هماهنگی کامل با بخش پرینت و خروجی‌ها</span>
                   </div>
                   <p className="opacity-75">
-                    این مستندات همراه با نمودار این صفحه در خروجی‌های <strong>پرینت کاغذی</strong>، فایل <strong>PDF</strong> و خروجی وب مستقل <strong>HTML</strong> نمایش داده خواهد شد.
+                    این توضیحات و نکات عیناً در پنجره <strong>چاپ و پرینت</strong>، خروجی <strong>PDF</strong> و نسخه وب <strong>HTML</strong> قرار می‌گیرند و هر تغییری در هر کدام اعمال شود، در دیگری نیز همگام خواهد شد.
                   </p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectTab('settings')}
+                  className="w-full text-center text-[11px] text-blue-500 hover:underline py-1 cursor-pointer"
+                >
+                  ⚙️ ویرایش عنوان و شرح کلی پروژه در تب تنظیمات
+                </button>
 
                 {onOpenPrint && (
                   <button
@@ -736,10 +840,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {/* Project Description Field */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-amber-500" />
-                  <span>{t.projectDescLabel}</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{t.projectDescLabel}</span>
+                  </label>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-normal">
+                    کلیات کل پروژه
+                  </span>
+                </div>
                 <textarea
                   value={projectDescDraft}
                   onChange={(e) => setProjectDescDraft(e.target.value)}
@@ -758,8 +867,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                 />
                 <span className="text-[10px] opacity-60 block leading-tight">
-                  توضیحات و مستندات ثبت‌شده در صفحه خروجی گراف هوشمند، پرینت و فایل‌های پروژه نمایش داده می‌شوند.
+                  شرح و مستندات کلان پروژه (مستقل از توضیحات اختصاصی هر صفحه، در جلد سند چاپی و شناسنامه پروژه نمایش می‌یابد).
                 </span>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTab('notes')}
+                  className="text-[10px] text-blue-500 hover:underline flex items-center gap-1 pt-0.5 cursor-pointer"
+                >
+                  <span>📝 ویرایش توضیحات اختصاصی این صفحه در تب یادداشت‌ها</span>
+                </button>
               </div>
 
               {/* Save Button */}

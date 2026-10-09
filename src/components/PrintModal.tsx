@@ -112,8 +112,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
           {
             id: 'p1',
             name: 'صفحه اصلی',
-            description: project.description || '',
-            notes: project.notes || '',
+            description: '',
+            notes: '',
             nodes: project.nodes || [],
             edges: project.edges || [],
           },
@@ -131,6 +131,32 @@ export const PrintModal: React.FC<PrintModalProps> = ({
       setLocalPageNotes(activePreviewPage.notes || '');
     }
   }, [activePreviewPage?.id, activePreviewPage?.description, activePreviewPage?.notes]);
+
+  const handlePageDescChange = (val: string) => {
+    setLocalPageDesc(val);
+    if (onUpdateProject && activePreviewPage) {
+      const updatedPages = (project.pages || []).map((p) =>
+        p.id === activePreviewPage.id ? { ...p, description: val, notes: localPageNotes } : p
+      );
+      onUpdateProject({
+        ...project,
+        pages: updatedPages,
+      });
+    }
+  };
+
+  const handlePageNotesChange = (val: string) => {
+    setLocalPageNotes(val);
+    if (onUpdateProject && activePreviewPage) {
+      const updatedPages = (project.pages || []).map((p) =>
+        p.id === activePreviewPage.id ? { ...p, description: localPageDesc, notes: val } : p
+      );
+      onUpdateProject({
+        ...project,
+        pages: updatedPages,
+      });
+    }
+  };
 
   // Handle custom font file upload (.woff2, .woff, .ttf, .otf)
   const handleFontFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,8 +219,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     return {
       ...project,
       title: settings.documentTitle || project.title,
-      description: localPageDesc || project.description,
-      notes: localPageNotes || project.notes,
+      description: project.description,
+      notes: project.notes,
       pages:
         updatedPages.length > 0
           ? updatedPages
@@ -202,8 +228,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
               {
                 id: activePreviewPage?.id || 'p1',
                 name: activePreviewPage?.name || 'صفحه اصلی',
-                description: localPageDesc || project.description || '',
-                notes: localPageNotes || project.notes || '',
+                description: localPageDesc || '',
+                notes: localPageNotes || '',
                 nodes: activePreviewPage?.nodes || project.nodes || [],
                 edges: activePreviewPage?.edges || project.edges || [],
               },
@@ -359,8 +385,6 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     const updatedProject: FlowchartProject = {
       ...project,
       title: settings.documentTitle || project.title,
-      description: localPageDesc || project.description,
-      notes: localPageNotes || project.notes,
       pages: updatedPages.length > 0 ? updatedPages : project.pages,
     };
 
@@ -1083,7 +1107,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
                     <textarea
                       value={localPageDesc}
-                      onChange={(e) => setLocalPageDesc(e.target.value)}
+                      onChange={(e) => handlePageDescChange(e.target.value)}
                       placeholder="توضیحات و مستندات این صفحه را اینجا بنویسید (در صفحه چاپ منعکس می‌شود)..."
                       rows={3}
                       className="w-full p-2.5 rounded-xl border text-xs bg-transparent focus:ring-1 focus:ring-blue-500 outline-none leading-relaxed resize-y"
@@ -1115,7 +1139,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                     </p>
                     <textarea
                       value={localPageNotes}
-                      onChange={(e) => setLocalPageNotes(e.target.value)}
+                      onChange={(e) => handlePageNotesChange(e.target.value)}
                       placeholder="• نکته ۱: رعایت زمان‌بندی حداکثر ۲۴ ساعته در این مرحله الزامی است...&#10;• نکته ۲: تاییدیه نهایی مدیر سیستم‌ها دریافت گردد..."
                       rows={3}
                       className="w-full p-2.5 rounded-xl border text-xs bg-transparent focus:ring-1 focus:ring-amber-500 outline-none leading-relaxed resize-y"

@@ -37,6 +37,12 @@ export interface FlowchartNode {
   locked?: boolean;
 }
 
+export interface ShapeTypeColorConfig {
+  fill: string;
+  stroke: string;
+  textColor: string;
+}
+
 export interface SiteDefaultSettings {
   // Shape defaults
   shapeFontFamily: string;
@@ -53,6 +59,9 @@ export interface SiteDefaultSettings {
   shapeHeight: number;
   shapeBorderRadius: number;
   shapeOpacity: number;
+
+  // Custom colors per shape type
+  shapeTypeColors?: Partial<Record<FlowchartNodeType, ShapeTypeColorConfig>>;
 
   // Connector defaults
   connectorLineType: LineType;

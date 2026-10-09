@@ -245,3 +245,40 @@ export function renderNodeShapePath(node: FlowchartNode): {
       };
   }
 }
+
+/**
+ * Trims extra spaces and extra enters from flowchart shape text:
+ * - Collapses consecutive spaces/tabs into a single space (while preserving Persian half-space \u200c)
+ * - Trims leading and trailing spaces on every line
+ * - Removes leading and trailing blank lines (enters)
+ * - Removes extra empty enters (lines containing only whitespace)
+ */
+export function trimShapeText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[ \t\u00A0]+/g, ' ').trim())
+    .filter((line) => line.length > 0)
+    .join('\n')
+    .trim();
+}
+
+/**
+ * Trims text and recalculates height for a node to eliminate dead empty space
+ */
+export function trimNodeTextAndAdjustHeight(node: FlowchartNode): FlowchartNode {
+  const cleanedLabel = trimShapeText(node.label || '');
+  const lines = cleanedLabel.split('\n');
+  const fontSize = node.fontSize || 13;
+  const minReqHeight = Math.round(lines.length * (fontSize * 1.35) + 26);
+  // If height was large due to previous empty enters, adjust height down comfortably
+  const newHeight = Math.max(minReqHeight, Math.min(node.height, minReqHeight + 20));
+
+  return {
+    ...node,
+    label: cleanedLabel,
+    height: Math.max(node.height > 0 ? newHeight : 60, minReqHeight),
+  };
+}

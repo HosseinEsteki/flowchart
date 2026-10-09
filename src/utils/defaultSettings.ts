@@ -1,4 +1,16 @@
-import { SiteDefaultSettings } from '../types/flowchart';
+import { SiteDefaultSettings, FlowchartNodeType, ShapeTypeColorConfig } from '../types/flowchart';
+
+export const DEFAULT_SHAPE_TYPE_COLORS: Record<FlowchartNodeType, ShapeTypeColorConfig> = {
+  terminal: { fill: '#EFF6FF', stroke: '#3B82F6', textColor: '#1E3A8A' },
+  process: { fill: '#F8FAFC', stroke: '#475569', textColor: '#0F172A' },
+  decision: { fill: '#FEF3C7', stroke: '#F59E0B', textColor: '#78350F' },
+  'input-output': { fill: '#F0FDF4', stroke: '#10B981', textColor: '#064E3B' },
+  document: { fill: '#F5F3FF', stroke: '#8B5CF6', textColor: '#4C1D95' },
+  subroutine: { fill: '#ECFEFF', stroke: '#06B6D4', textColor: '#164E63' },
+  database: { fill: '#FFF1F2', stroke: '#F43F5E', textColor: '#881337' },
+  connector: { fill: '#F1F5F9', stroke: '#64748B', textColor: '#1E293B' },
+  note: { fill: '#FEFCE8', stroke: '#EAB308', textColor: '#713F12' },
+};
 
 export const FONT_OPTIONS = [
   { id: 'Vazirmatn, sans-serif', label: 'وزیرمتن (Vazirmatn)', family: 'Vazirmatn, sans-serif' },
@@ -47,6 +59,9 @@ export const DEFAULT_SITE_SETTINGS: SiteDefaultSettings = {
   shapeBorderRadius: 8,
   shapeOpacity: 1,
 
+  // Custom colors per shape type
+  shapeTypeColors: { ...DEFAULT_SHAPE_TYPE_COLORS },
+
   // Connector defaults
   connectorLineType: 'orthogonal',
   connectorColor: '#64748B',
@@ -67,7 +82,14 @@ export function getSiteDefaultSettings(): SiteDefaultSettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_SITE_SETTINGS, ...parsed };
+      return {
+        ...DEFAULT_SITE_SETTINGS,
+        ...parsed,
+        shapeTypeColors: {
+          ...DEFAULT_SHAPE_TYPE_COLORS,
+          ...(parsed.shapeTypeColors || {}),
+        },
+      };
     }
   } catch (e) {
     console.warn('Error reading default settings from localStorage:', e);
