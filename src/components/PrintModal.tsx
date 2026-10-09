@@ -178,9 +178,38 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
   // Generate SVG markup for current preview page
   const pageSvgResult = useMemo(() => {
-    if (!activePreviewPage) return { svg: '', width: 600, height: 400 };
+    if (!isOpen || !activePreviewPage) return { svg: '', width: 600, height: 400 };
     return generatePageSvgMarkup(activePreviewPage, settings.colorMode);
-  }, [activePreviewPage, settings.colorMode]);
+  }, [isOpen, activePreviewPage, settings.colorMode]);
+
+  // Real-time project snapshot with live description and notes edits
+  const projectWithLiveEdits = useMemo<FlowchartProject>(() => {
+    if (!isOpen) return project;
+    const updatedPages = (project.pages || []).map((p) =>
+      p.id === activePreviewPage?.id
+        ? { ...p, description: localPageDesc, notes: localPageNotes }
+        : p
+    );
+    return {
+      ...project,
+      title: settings.documentTitle || project.title,
+      description: localPageDesc || project.description,
+      notes: localPageNotes || project.notes,
+      pages:
+        updatedPages.length > 0
+          ? updatedPages
+          : [
+              {
+                id: activePreviewPage?.id || 'p1',
+                name: activePreviewPage?.name || 'صفحه اصلی',
+                description: localPageDesc || project.description || '',
+                notes: localPageNotes || project.notes || '',
+                nodes: activePreviewPage?.nodes || project.nodes || [],
+                edges: activePreviewPage?.edges || project.edges || [],
+              },
+            ],
+    };
+  }, [isOpen, project, activePreviewPage, localPageDesc, localPageNotes, settings.documentTitle]);
 
   if (!isOpen) return null;
 
@@ -258,34 +287,6 @@ export const PrintModal: React.FC<PrintModalProps> = ({
         break;
     }
   };
-
-  // Real-time project snapshot with live description and notes edits
-  const projectWithLiveEdits = useMemo<FlowchartProject>(() => {
-    const updatedPages = (project.pages || []).map((p) =>
-      p.id === activePreviewPage?.id
-        ? { ...p, description: localPageDesc, notes: localPageNotes }
-        : p
-    );
-    return {
-      ...project,
-      title: settings.documentTitle || project.title,
-      description: localPageDesc || project.description,
-      notes: localPageNotes || project.notes,
-      pages:
-        updatedPages.length > 0
-          ? updatedPages
-          : [
-              {
-                id: activePreviewPage?.id || 'p1',
-                name: activePreviewPage?.name || 'صفحه اصلی',
-                description: localPageDesc || project.description || '',
-                notes: localPageNotes || project.notes || '',
-                nodes: activePreviewPage?.nodes || project.nodes || [],
-                edges: activePreviewPage?.edges || project.edges || [],
-              },
-            ],
-    };
-  }, [project, activePreviewPage, localPageDesc, localPageNotes, settings.documentTitle]);
 
   // Actions
   const handlePrint = () => {
