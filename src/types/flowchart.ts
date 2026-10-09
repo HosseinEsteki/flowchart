@@ -117,6 +117,7 @@ export type PrintPaperSize = 'a4' | 'a3' | 'letter' | 'legal';
 export type PrintOrientation = 'landscape' | 'portrait';
 export type PrintDescPosition = 'below' | 'above' | 'appendix';
 export type PrintTextAlign = 'right' | 'center' | 'left' | 'justify';
+export type PrintSplitPosition = 'shapes-top' | 'shapes-bottom' | 'shapes-right' | 'shapes-left';
 
 export interface PrintSettings {
   colorMode: PrintColorMode;
@@ -129,6 +130,7 @@ export interface PrintSettings {
   textAlign: PrintTextAlign;
   spacing: number;
   descPosition: PrintDescPosition;
+  splitPosition?: PrintSplitPosition;
   paperSize: PrintPaperSize;
   orientation: PrintOrientation;
   marginSize: 'compact' | 'normal' | 'spacious';

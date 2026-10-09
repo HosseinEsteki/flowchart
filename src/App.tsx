@@ -197,6 +197,34 @@ export default function App() {
   // Modals
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printModalMode, setPrintModalMode] = useState<'single' | 'aggregate'>('single');
+
+  const handleOpenPrint = (mode: 'single' | 'aggregate' = 'single') => {
+    loadProjectsList();
+    setPrintModalMode(mode);
+    setPrintModalOpen(true);
+  };
+
+  const handleUpdateAnyProject = async (updatedProject: FlowchartProject) => {
+    if (updatedProject.id === project.id) {
+      setProject(updatedProject);
+      triggerCloudSave(updatedProject);
+    } else {
+      try {
+        await fetch(`/api/projects/${updatedProject.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedProject),
+        });
+        loadProjectsList();
+        try {
+          localStorage.setItem(`flowcraft_project_${updatedProject.id}`, JSON.stringify(updatedProject));
+        } catch (_) {}
+      } catch (e) {
+        console.warn('Update project error:', e);
+      }
+    }
+  };
   const [defaultSettingsModalOpen, setDefaultSettingsModalOpen] = useState(false);
   const [siteDefaultSettings, setSiteDefaultSettings] = useState<SiteDefaultSettings>(() =>
     getSiteDefaultSettings()
@@ -1359,7 +1387,8 @@ export default function App() {
           setZoom(1);
           setPan({ x: 40, y: 30 });
         }}
-        onOpenPrint={() => setPrintModalOpen(true)}
+        onOpenPrint={() => handleOpenPrint('single')}
+        onOpenAggregatePrint={() => handleOpenPrint('aggregate')}
         onOpenExport={() => setExportModalOpen(true)}
         onOpenCollaboration={() => setCollaborationModalOpen(true)}
         onOpenShortcuts={() => setShortcutsModalOpen(true)}
@@ -1406,11 +1435,12 @@ export default function App() {
           onSelectPage={handleSelectPage}
           onUpdatePageDescription={handleUpdatePageDescription}
           onUpdatePageNotes={handleUpdatePageNotes}
-          onOpenPrint={() => setPrintModalOpen(true)}
+          onOpenPrint={() => handleOpenPrint('single')}
           projectTitle={project.title}
           projectDescription={project.description || ''}
           onUpdateProjectDetails={handleUpdateProjectDetails}
           onOpenDefaultSettings={() => setDefaultSettingsModalOpen(true)}
+          defaultSettings={siteDefaultSettings}
           totalNodesCount={project.nodes.length}
           totalEdgesCount={project.edges.length}
         />
@@ -1525,6 +1555,7 @@ export default function App() {
         onDuplicateProject={handleDuplicateProject}
         onDeleteProject={handleDeleteProject}
         onImportProjectJson={handleImportProjectJson}
+        onOpenAggregatePrint={() => handleOpenPrint('aggregate')}
         theme={currentTheme}
         t={t}
         lang={lang}
@@ -1537,13 +1568,16 @@ export default function App() {
         t={t}
         project={project}
         svgRef={svgRef}
-        onOpenPrint={() => setPrintModalOpen(true)}
+        onOpenPrint={() => handleOpenPrint('single')}
       />
 
       <PrintModal
         isOpen={printModalOpen}
         onClose={() => setPrintModalOpen(false)}
         project={project}
+        projectsList={projectsList}
+        initialMode={printModalMode}
+        onUpdateAnyProject={handleUpdateAnyProject}
         theme={currentTheme}
         t={t}
         onUpdateProject={(updatedProject) => {

@@ -26,10 +26,11 @@ import {
   FolderKanban,
   Lightbulb,
 } from 'lucide-react';
-import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage, FlowchartPage } from '../types/flowchart';
+import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage, FlowchartPage, SiteDefaultSettings } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
 import { TEMPLATES } from '../constants/templates';
+import { DEFAULT_SHAPE_TYPE_COLORS } from '../utils/defaultSettings';
 
 interface SidebarProps {
   theme: ColorTheme;
@@ -59,6 +60,7 @@ interface SidebarProps {
   projectDescription?: string;
   onUpdateProjectDetails?: (title: string, description: string) => void;
   onOpenDefaultSettings?: () => void;
+  defaultSettings?: SiteDefaultSettings;
   totalNodesCount?: number;
   totalEdgesCount?: number;
 }
@@ -91,6 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   projectDescription,
   onUpdateProjectDetails,
   onOpenDefaultSettings,
+  defaultSettings,
   totalNodesCount,
   totalEdgesCount,
 }) => {
@@ -388,23 +391,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               <div className="grid grid-cols-1 gap-2">
                 {shapeItems.map((item) => {
-                  const paletteColor = theme.palette[item.colorKey];
+                  const customColor =
+                    defaultSettings?.shapeTypeColors?.[item.type] || DEFAULT_SHAPE_TYPE_COLORS[item.type];
+                  const fillColor = customColor?.fill || theme.palette[item.colorKey].fill;
+                  const strokeColor = customColor?.stroke || theme.palette[item.colorKey].stroke;
+                  const textColor = customColor?.textColor || theme.palette[item.colorKey].text;
                   return (
                     <button
                       key={item.type}
                       onClick={() => onAddNode(item.type)}
-                      className="group flex items-center gap-3 p-2.5 rounded-xl border text-right transition-all hover:scale-[1.01] hover:shadow-xs active:scale-95"
+                      className="group flex items-center gap-3 p-2.5 rounded-xl border text-right transition-all hover:scale-[1.01] hover:shadow-xs active:scale-95 cursor-pointer"
                       style={{
                         backgroundColor: theme.ui.surface,
                         borderColor: theme.ui.border,
                       }}
                     >
                       <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border transition-transform group-hover:scale-110"
+                        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border transition-transform group-hover:scale-110 shadow-2xs"
                         style={{
-                          backgroundColor: paletteColor.fill,
-                          borderColor: paletteColor.stroke,
-                          color: paletteColor.text,
+                          backgroundColor: fillColor === 'transparent' ? '#FFFFFF' : fillColor,
+                          borderColor: strokeColor,
+                          color: textColor,
+                          borderWidth: '2px',
                         }}
                       >
                         {item.icon}

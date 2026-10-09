@@ -208,6 +208,14 @@ export interface TranslationDictionary {
   projectDescPlaceholder: string;
   saveChanges: string;
   changesSaved: string;
+  aggregatePrint: string;
+  aggregatePrintDesc: string;
+  singleProjectPrint: string;
+  orderProjects: string;
+  applyChangesToProject: string;
+  executeAggregatePrint: string;
+  downloadAggregatePdf: string;
+  downloadAggregateHtml: string;
 }
 
 export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
@@ -421,6 +429,14 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     projectDescPlaceholder: 'توضیحات و اهداف کلی این فلوچارت یا فرآیند را بنویسید...',
     saveChanges: 'ذخیره تغییرات',
     changesSaved: 'تغییرات پروژه با موفقیت ذخیره شد',
+    aggregatePrint: 'پرینت تجمیعی',
+    aggregatePrintDesc: 'چاپ تجمیعی چند پروژه به ترتیب دلخواه با امکان ویرایش مشخصات هر پروژه',
+    singleProjectPrint: 'پرینت پروژه جاری',
+    orderProjects: 'ترتیب چاپ پروژه‌ها',
+    applyChangesToProject: 'اعمال تغییرات در این پروژه',
+    executeAggregatePrint: 'اجرای پرینت تجمیعی',
+    downloadAggregatePdf: 'دانلود PDF تجمیعی',
+    downloadAggregateHtml: 'دانلود HTML تجمیعی',
   },
   en: {
     appName: 'FlowCraft',
@@ -632,5 +648,13 @@ export const TRANSLATIONS: Record<'fa' | 'en', TranslationDictionary> = {
     projectDescPlaceholder: 'Write overall project description and flowchart goals...',
     saveChanges: 'Save Changes',
     changesSaved: 'Project changes saved successfully',
+    aggregatePrint: 'Aggregate Print',
+    aggregatePrintDesc: 'Batch print multiple projects in custom sequence with individual project edits',
+    singleProjectPrint: 'Current Project Print',
+    orderProjects: 'Project Printing Order',
+    applyChangesToProject: 'Apply Changes to Project',
+    executeAggregatePrint: 'Execute Aggregate Print',
+    downloadAggregatePdf: 'Download Aggregate PDF',
+    downloadAggregateHtml: 'Download Aggregate HTML',
   },
 };

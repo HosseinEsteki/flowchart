@@ -17,6 +17,7 @@ import {
   FolderKanban,
   Printer,
   Settings,
+  Layers,
 } from 'lucide-react';
 import { THEMES } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
@@ -41,6 +42,7 @@ interface HeaderProps {
   onZoomOut: () => void;
   onResetZoom: () => void;
   onOpenPrint?: () => void;
+  onOpenAggregatePrint?: () => void;
   onOpenExport: () => void;
   onOpenCollaboration?: () => void;
   onOpenShortcuts: () => void;
@@ -69,6 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
   onZoomOut,
   onResetZoom,
   onOpenPrint,
+  onOpenAggregatePrint,
   onOpenExport,
   onOpenCollaboration,
   onOpenShortcuts,
@@ -333,7 +336,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenPrint && (
           <button
             onClick={onOpenPrint}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-xs border hover:opacity-85 transition-all whitespace-nowrap shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-xs border hover:opacity-85 transition-all whitespace-nowrap shadow-xs cursor-pointer"
             style={{
               borderColor: currentTheme.ui.border,
               backgroundColor: currentTheme.ui.surface,
@@ -343,6 +346,23 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Printer className="w-4 h-4 text-blue-500" />
             <span className="hidden md:inline">ادیتور چاپ</span>
+          </button>
+        )}
+
+        {/* Aggregate Print Button */}
+        {onOpenAggregatePrint && (
+          <button
+            onClick={onOpenAggregatePrint}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-xs border hover:opacity-85 transition-all whitespace-nowrap shadow-xs cursor-pointer"
+            style={{
+              borderColor: currentTheme.ui.border,
+              backgroundColor: currentTheme.ui.surface,
+              color: currentTheme.ui.textPrimary,
+            }}
+            title="پرینت تجمیعی چند پروژه به ترتیب دلخواه"
+          >
+            <Layers className="w-4 h-4 text-indigo-500" />
+            <span className="hidden sm:inline">{t.aggregatePrint || 'پرینت تجمیعی'}</span>
           </button>
         )}
 

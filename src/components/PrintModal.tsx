@@ -20,6 +20,8 @@ import {
   getFontFamilyCss,
   exportHighResPng,
 } from '../utils/printUtils';
+import { ProjectSummary } from './ProjectsModal';
+import { AggregatePrintStudio } from './AggregatePrintStudio';
 import {
   X,
   Printer,
@@ -56,6 +58,9 @@ interface PrintModalProps {
   theme: ColorTheme;
   t: TranslationDictionary;
   onUpdateProject?: (updated: FlowchartProject) => void;
+  projectsList?: ProjectSummary[];
+  initialMode?: 'single' | 'aggregate';
+  onUpdateAnyProject?: (updated: FlowchartProject) => Promise<void> | void;
 }
 
 type EditorTab = 'presets' | 'typography' | 'blocks' | 'diagram' | 'paper';
@@ -68,7 +73,19 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   theme,
   t,
   onUpdateProject,
+  projectsList = [],
+  initialMode = 'single',
+  onUpdateAnyProject,
 }) => {
+  // Mode: single project or aggregate multi-project
+  const [printMode, setPrintMode] = useState<'single' | 'aggregate'>(initialMode);
+
+  useEffect(() => {
+    if (isOpen && initialMode) {
+      setPrintMode(initialMode);
+    }
+  }, [isOpen, initialMode]);
+
   // Main settings state with project defaults
   const [settings, setSettings] = useState<PrintSettings>(() => ({
     ...DEFAULT_PRINT_SETTINGS,
@@ -238,6 +255,22 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   }, [isOpen, project, activePreviewPage, localPageDesc, localPageNotes, settings.documentTitle]);
 
   if (!isOpen) return null;
+
+  if (printMode === 'aggregate') {
+    return (
+      <AggregatePrintStudio
+        currentProject={project}
+        projectsList={projectsList}
+        theme={theme}
+        t={t}
+        settings={settings}
+        onUpdateSettings={setSettings}
+        onClose={onClose}
+        onSaveProject={onUpdateAnyProject || (async (p) => { onUpdateProject?.(p); })}
+        onSwitchToSingleMode={() => setPrintMode('single')}
+      />
+    );
+  }
 
   // Apply predefined layout presets
   const applyPreset = (preset: NonNullable<PrintSettings['preset']>) => {
@@ -460,44 +493,71 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="font-bold text-sm sm:text-base truncate">
+                <h2 className="font-bold text-sm sm:text-base truncate" style={{ color: '#aec5ff' }}>
                   استودیوی ویرایش و چاپ
                 </h2>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 hidden sm:inline-block">
                   Print Studio
                 </span>
               </div>
-              <p className="text-[11px] opacity-60 truncate">
+              <p className="text-[11px] opacity-60 truncate" style={{ color: '#c3e0ef' }}>
                 {effectiveTitle} • {availablePages.length} صفحه • قطع {settings.paperSize.toUpperCase()}{' '}
                 {settings.orientation === 'landscape' ? 'افقی' : 'عمودی'}
               </p>
             </div>
           </div>
 
-          {/* Center Mode Switcher */}
-          <div className="hidden lg:flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-semibold">
-            <button
-              onClick={() => setViewMode('sheet')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
-                viewMode === 'sheet'
-                  ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
-                  : 'opacity-70 hover:opacity-100'
-              }`}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>پیش‌نمایش زنده صفحه</span>
-            </button>
-            <button
-              onClick={() => setViewMode('html')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
-                viewMode === 'html'
-                  ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
-                  : 'opacity-70 hover:opacity-100'
-              }`}
-            >
-              <FileCode className="w-3.5 h-3.5" />
-              <span>کد HTML چاپ</span>
-            </button>
+          {/* Center Mode Switchers */}
+          <div className="flex items-center gap-2">
+            {/* 1. Single vs Aggregate Mode Switcher */}
+            <div className="flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-semibold">
+              <button
+                onClick={() => setPrintMode('single')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold shadow-xs transition-all cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t.singleProjectPrint || 'پرینت پروژه جاری'}</span>
+              </button>
+              <button
+                onClick={() => setPrintMode('aggregate')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                title="پرینت تجمیعی چند پروژه با امکان مرتب‌سازی و ویرایش"
+              >
+                <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                <span>{t.aggregatePrint || 'پرینت تجمیعی'}</span>
+                {projectsList.length > 1 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold">
+                    {projectsList.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* 2. Sheet vs HTML Preview Switcher */}
+            <div className="hidden md:flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-semibold">
+              <button
+                onClick={() => setViewMode('sheet')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  viewMode === 'sheet'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                    : 'opacity-70 hover:opacity-100'
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>پیش‌نمایش زنده صفحه</span>
+              </button>
+              <button
+                onClick={() => setViewMode('html')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  viewMode === 'html'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                    : 'opacity-70 hover:opacity-100'
+                }`}
+              >
+                <FileCode className="w-3.5 h-3.5" />
+                <span>کد HTML چاپ</span>
+              </button>
+            </div>
           </div>
 
           {/* Right Top Actions */}

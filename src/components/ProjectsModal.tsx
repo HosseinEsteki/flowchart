@@ -14,6 +14,7 @@ import {
   FileCode,
   X,
   Sparkles,
+  Printer,
 } from 'lucide-react';
 import { FlowchartProject } from '../types/flowchart';
 import { ColorTheme, THEMES } from '../constants/themes';
@@ -43,6 +44,7 @@ interface ProjectsModalProps {
   onDuplicateProject: (projectId: string) => void;
   onDeleteProject: (projectId: string) => void;
   onImportProjectJson: (projectData: FlowchartProject) => void;
+  onOpenAggregatePrint?: () => void;
   theme: ColorTheme;
   t: TranslationDictionary;
   lang: 'fa' | 'en';
@@ -58,6 +60,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
   onDuplicateProject,
   onDeleteProject,
   onImportProjectJson,
+  onOpenAggregatePrint,
   theme,
   t,
   lang,
@@ -153,7 +156,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold">{t.myProjects}</h2>
+                <h2 className="text-lg font-bold" style={{ color: '#aec5ff' }}>{t.myProjects}</h2>
                 <span
                   className="px-2 py-0.5 rounded-full text-xs font-semibold"
                   style={{ backgroundColor: theme.ui.surface, color: theme.ui.textMuted }}
@@ -168,6 +171,21 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenAggregatePrint && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenAggregatePrint();
+                }}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer text-indigo-600 dark:text-indigo-400"
+                style={{ borderColor: theme.ui.border }}
+                title="پرینت تجمیعی پروژه‌ها به ترتیب دلخواه"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>پرینت تجمیعی پروژه‌ها</span>
+              </button>
+            )}
+
             <button
               onClick={() => fileInputRef.current?.click()}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border hover:opacity-85 transition-opacity"
