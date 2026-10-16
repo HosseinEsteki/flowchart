@@ -181,8 +181,16 @@ export default function App() {
   const [undoStack, setUndoStack] = useState<Array<{ nodes: FlowchartNode[]; edges: FlowchartEdge[] }>>([]);
   const [redoStack, setRedoStack] = useState<Array<{ nodes: FlowchartNode[]; edges: FlowchartEdge[] }>>([]);
 
-  // Selection
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Selection (supports single and multi-node selection)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : (selectedNodeIds[0] || null);
+  const setSelectedNodeId = useCallback((id: string | null) => {
+    if (id) {
+      setSelectedNodeIds([id]);
+    } else {
+      setSelectedNodeIds([]);
+    }
+  }, []);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   // Canvas viewport
@@ -287,6 +295,7 @@ export default function App() {
 
   // Clipboard for copy/paste
   const clipboardNodeRef = useRef<FlowchartNode | null>(null);
+  const clipboardNodesRef = useRef<FlowchartNode[]>([]);
   const [hasClipboardNode, setHasClipboardNode] = useState(false);
 
   // Track continuous keyboard nudging to group undo actions
@@ -1077,6 +1086,19 @@ export default function App() {
     }
   };
 
+  // Batch update multiple nodes (e.g., when dragging multiple shapes together)
+  const handleUpdateNodes = useCallback((updatedList: FlowchartNode[]) => {
+    const updatedMap = new Map(updatedList.map((n) => [n.id, n]));
+    const nextNodes = project.nodes.map((n) => updatedMap.get(n.id) || n);
+    updateProjectData(nextNodes, project.edges);
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      for (const node of updatedList) {
+        wsRef.current.send(JSON.stringify({ type: 'node_update', node }));
+      }
+    }
+  }, [project.nodes, project.edges, updateProjectData]);
+
   const handleTrimAllNodes = () => {
     pushUndo();
     const updatedNodes = project.nodes.map((n) => trimNodeTextAndAdjustHeight(n));
@@ -1090,12 +1112,32 @@ export default function App() {
       (e) => e.sourceNodeId !== nodeId && e.targetNodeId !== nodeId
     );
     updateProjectData(updatedNodes, updatedEdges);
-    setSelectedNodeId(null);
+    setSelectedNodeIds((prev) => prev.filter((id) => id !== nodeId));
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'node_delete', nodeId }));
     }
   };
+
+  // Batch delete multiple nodes
+  const handleDeleteSelectedNodes = useCallback((idsToDelete?: string[]) => {
+    const targetIds = idsToDelete || selectedNodeIds;
+    if (targetIds.length === 0) return;
+    pushUndo();
+    const idSet = new Set(targetIds);
+    const updatedNodes = project.nodes.filter((n) => !idSet.has(n.id));
+    const updatedEdges = project.edges.filter(
+      (e) => !idSet.has(e.sourceNodeId) && !idSet.has(e.targetNodeId)
+    );
+    updateProjectData(updatedNodes, updatedEdges);
+    setSelectedNodeIds([]);
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      for (const id of targetIds) {
+        wsRef.current.send(JSON.stringify({ type: 'node_delete', nodeId: id }));
+      }
+    }
+  }, [selectedNodeIds, project.nodes, project.edges, pushUndo, updateProjectData]);
 
   const handleDuplicateNode = (nodeId: string) => {
     const target = project.nodes.find((n) => n.id === nodeId);
@@ -1111,27 +1153,232 @@ export default function App() {
 
     const updatedNodes = [...project.nodes, dupNode];
     updateProjectData(updatedNodes, project.edges);
-    setSelectedNodeId(dupNode.id);
+    setSelectedNodeIds([dupNode.id]);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'node_update', node: dupNode }));
     }
   };
 
+  // Batch duplicate multiple selected nodes (and their internal connecting lines)
+  const handleDuplicateSelectedNodes = useCallback((idsToDuplicate?: string[]) => {
+    const targetIds = idsToDuplicate || selectedNodeIds;
+    if (targetIds.length === 0) return;
+    pushUndo();
+
+    const idMap = new Map<string, string>();
+    const dupNodes: FlowchartNode[] = [];
+
+    for (const id of targetIds) {
+      const orig = project.nodes.find((n) => n.id === id);
+      if (orig) {
+        const newId = `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        idMap.set(orig.id, newId);
+        dupNodes.push({
+          ...JSON.parse(JSON.stringify(orig)),
+          id: newId,
+          x: orig.x + 35,
+          y: orig.y + 35,
+        });
+      }
+    }
+
+    // Duplicate connecting edges between these nodes
+    const dupEdges: FlowchartEdge[] = [];
+    for (const edge of project.edges) {
+      if (idMap.has(edge.sourceNodeId) && idMap.has(edge.targetNodeId)) {
+        dupEdges.push({
+          ...JSON.parse(JSON.stringify(edge)),
+          id: `edge-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          sourceNodeId: idMap.get(edge.sourceNodeId)!,
+          targetNodeId: idMap.get(edge.targetNodeId)!,
+        });
+      }
+    }
+
+    const nextNodes = [...project.nodes, ...dupNodes];
+    const nextEdges = [...project.edges, ...dupEdges];
+    updateProjectData(nextNodes, nextEdges);
+    setSelectedNodeIds(dupNodes.map((n) => n.id));
+  }, [selectedNodeIds, project.nodes, project.edges, pushUndo, updateProjectData]);
+
+  // Batch alignment for selected nodes
+  const handleAlignSelectedNodes = useCallback(
+    (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+      if (selectedNodeIds.length < 2) return;
+      const targetNodes = project.nodes.filter((n) => selectedNodeIds.includes(n.id));
+      if (targetNodes.length < 2) return;
+      pushUndo();
+
+      let refVal = 0;
+      if (alignment === 'left') {
+        refVal = Math.min(...targetNodes.map((n) => n.x));
+      } else if (alignment === 'right') {
+        refVal = Math.max(...targetNodes.map((n) => n.x + n.width));
+      } else if (alignment === 'center') {
+        const minX = Math.min(...targetNodes.map((n) => n.x));
+        const maxX = Math.max(...targetNodes.map((n) => n.x + n.width));
+        refVal = (minX + maxX) / 2;
+      } else if (alignment === 'top') {
+        refVal = Math.min(...targetNodes.map((n) => n.y));
+      } else if (alignment === 'bottom') {
+        refVal = Math.max(...targetNodes.map((n) => n.y + n.height));
+      } else if (alignment === 'middle') {
+        const minY = Math.min(...targetNodes.map((n) => n.y));
+        const maxY = Math.max(...targetNodes.map((n) => n.y + n.height));
+        refVal = (minY + maxY) / 2;
+      }
+
+      const updated = targetNodes.map((n) => {
+        let x = n.x;
+        let y = n.y;
+        if (alignment === 'left') x = refVal;
+        else if (alignment === 'right') x = refVal - n.width;
+        else if (alignment === 'center') x = Math.round(refVal - n.width / 2);
+        else if (alignment === 'top') y = refVal;
+        else if (alignment === 'bottom') y = refVal - n.height;
+        else if (alignment === 'middle') y = Math.round(refVal - n.height / 2);
+
+        if (snapToGrid) {
+          x = Math.round(x / 15) * 15;
+          y = Math.round(y / 15) * 15;
+        }
+        return { ...n, x, y };
+      });
+
+      handleUpdateNodes(updated);
+    },
+    [selectedNodeIds, project.nodes, pushUndo, snapToGrid, handleUpdateNodes]
+  );
+
+  // Batch distribution for selected nodes
+  const handleDistributeSelectedNodes = useCallback(
+    (direction: 'horizontal' | 'vertical') => {
+      if (selectedNodeIds.length < 3) return;
+      const targetNodes = project.nodes.filter((n) => selectedNodeIds.includes(n.id));
+      if (targetNodes.length < 3) return;
+      pushUndo();
+
+      if (direction === 'horizontal') {
+        const sorted = [...targetNodes].sort((a, b) => a.x - b.x);
+        const minX = sorted[0].x;
+        const last = sorted[sorted.length - 1];
+        const maxX = last.x + last.width;
+        const totalNodeWidth = sorted.reduce((sum, n) => sum + n.width, 0);
+        const availableGap = Math.max(0, maxX - minX - totalNodeWidth);
+        const gap = availableGap / (sorted.length - 1);
+
+        let currentX = minX;
+        const updated = sorted.map((n, idx) => {
+          if (idx === 0) {
+            currentX += n.width + gap;
+            return n;
+          }
+          const newX = Math.round(currentX);
+          currentX += n.width + gap;
+          return { ...n, x: snapToGrid ? Math.round(newX / 15) * 15 : newX };
+        });
+        handleUpdateNodes(updated);
+      } else {
+        const sorted = [...targetNodes].sort((a, b) => a.y - b.y);
+        const minY = sorted[0].y;
+        const last = sorted[sorted.length - 1];
+        const maxY = last.y + last.height;
+        const totalNodeHeight = sorted.reduce((sum, n) => sum + n.height, 0);
+        const availableGap = Math.max(0, maxY - minY - totalNodeHeight);
+        const gap = availableGap / (sorted.length - 1);
+
+        let currentY = minY;
+        const updated = sorted.map((n, idx) => {
+          if (idx === 0) {
+            currentY += n.height + gap;
+            return n;
+          }
+          const newY = Math.round(currentY);
+          currentY += n.height + gap;
+          return { ...n, y: snapToGrid ? Math.round(newY / 15) * 15 : newY };
+        });
+        handleUpdateNodes(updated);
+      }
+    },
+    [selectedNodeIds, project.nodes, pushUndo, snapToGrid, handleUpdateNodes]
+  );
+
+  // Batch change color of selected nodes
+  const handleBatchChangeColor = useCallback(
+    (fill?: string, stroke?: string, textColor?: string) => {
+      if (selectedNodeIds.length === 0) return;
+      pushUndo();
+      const updated = project.nodes
+        .filter((n) => selectedNodeIds.includes(n.id))
+        .map((n) => ({
+          ...n,
+          fill: fill !== undefined ? fill : n.fill,
+          stroke: stroke !== undefined ? stroke : n.stroke,
+          textColor: textColor !== undefined ? textColor : n.textColor,
+        }));
+      handleUpdateNodes(updated);
+    },
+    [selectedNodeIds, project.nodes, pushUndo, handleUpdateNodes]
+  );
+
   const handleCopyNode = useCallback((node: FlowchartNode) => {
     clipboardNodeRef.current = node;
+    clipboardNodesRef.current = [node];
     setHasClipboardNode(true);
   }, []);
+
+  const handleCopySelectedNodes = useCallback(() => {
+    const list = project.nodes.filter((n) => selectedNodeIds.includes(n.id));
+    if (list.length > 0) {
+      clipboardNodeRef.current = list[0];
+      clipboardNodesRef.current = list;
+      setHasClipboardNode(true);
+    }
+  }, [project.nodes, selectedNodeIds]);
 
   const handleCutNode = useCallback((nodeId: string) => {
     const node = project.nodes.find((n) => n.id === nodeId);
     if (!node) return;
     clipboardNodeRef.current = node;
+    clipboardNodesRef.current = [node];
     setHasClipboardNode(true);
     handleDeleteNode(nodeId);
   }, [project.nodes, handleDeleteNode]);
 
+  const handleCutSelectedNodes = useCallback(() => {
+    const list = project.nodes.filter((n) => selectedNodeIds.includes(n.id));
+    if (list.length > 0) {
+      clipboardNodeRef.current = list[0];
+      clipboardNodesRef.current = list;
+      setHasClipboardNode(true);
+      handleDeleteSelectedNodes(selectedNodeIds);
+    }
+  }, [project.nodes, selectedNodeIds, handleDeleteSelectedNodes]);
+
   const handlePasteNodeAt = useCallback((canvasPos: Point) => {
+    if (clipboardNodesRef.current && clipboardNodesRef.current.length > 1) {
+      pushUndo();
+      const list = clipboardNodesRef.current;
+      let minX = Infinity;
+      let minY = Infinity;
+      for (const n of list) {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+      }
+      const offsetX = canvasPos.x - minX;
+      const offsetY = canvasPos.y - minY;
+      const pasteNodes: FlowchartNode[] = list.map((target) => ({
+        ...JSON.parse(JSON.stringify(target)),
+        id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        x: Math.round(target.x + offsetX),
+        y: Math.round(target.y + offsetY),
+      }));
+      updateProjectData([...project.nodes, ...pasteNodes], project.edges);
+      setSelectedNodeIds(pasteNodes.map((n) => n.id));
+      return;
+    }
+
     if (!clipboardNodeRef.current) return;
     pushUndo();
     const target = clipboardNodeRef.current;
@@ -1142,7 +1389,7 @@ export default function App() {
       y: Math.round(canvasPos.y - target.height / 2),
     };
     updateProjectData([...project.nodes, pasteNode], project.edges);
-    setSelectedNodeId(pasteNode.id);
+    setSelectedNodeIds([pasteNode.id]);
   }, [project.nodes, project.edges, pushUndo, updateProjectData]);
 
   const handleBringToFront = useCallback((nodeId: string) => {
@@ -1677,30 +1924,30 @@ export default function App() {
         e.preventDefault();
         handleRedo();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedNodeId) {
+        if (selectedNodeIds.length > 0) {
           e.preventDefault();
-          handleDeleteNode(selectedNodeId);
+          handleDeleteSelectedNodes();
         } else if (selectedEdgeId) {
           e.preventDefault();
           handleDeleteEdge(selectedEdgeId);
         }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelectedNodeIds(project.nodes.map((n) => n.id));
+        setSelectedEdgeId(null);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
-        if (selectedNodeId) {
+        if (selectedNodeIds.length > 0) {
           e.preventDefault();
-          handleDuplicateNode(selectedNodeId);
+          handleDuplicateSelectedNodes();
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        if (selectedNodeId) {
-          const node = project.nodes.find((n) => n.id === selectedNodeId);
-          if (node) {
-            clipboardNodeRef.current = node;
-            setHasClipboardNode(true);
-          }
+        if (selectedNodeIds.length > 0) {
+          handleCopySelectedNodes();
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
-        if (selectedNodeId) {
+        if (selectedNodeIds.length > 0) {
           e.preventDefault();
-          handleCutNode(selectedNodeId);
+          handleCutSelectedNodes();
         }
       } else if (
         e.key === 'ArrowLeft' ||
@@ -1708,7 +1955,7 @@ export default function App() {
         e.key === 'ArrowUp' ||
         e.key === 'ArrowDown'
       ) {
-        if (!selectedNodeId && !selectedEdgeId) return;
+        if (selectedNodeIds.length === 0 && !selectedEdgeId) return;
 
         e.preventDefault();
 
@@ -1741,24 +1988,30 @@ export default function App() {
           isNudgingRef.current = false;
         }, 500);
 
-        // 1. Moving selected shape (node)
-        if (selectedNodeId) {
-          const node = project.nodes.find((n) => n.id === selectedNodeId);
-          if (node && !node.locked) {
-            let newX = node.x + dx;
-            let newY = node.y + dy;
+        // 1. Moving all selected shapes (multi or single)
+        if (selectedNodeIds.length > 0) {
+          const targetIdSet = new Set(selectedNodeIds);
+          const updatedNodes: FlowchartNode[] = [];
+          for (const node of project.nodes) {
+            if (targetIdSet.has(node.id) && !node.locked) {
+              let newX = node.x + dx;
+              let newY = node.y + dy;
 
-            if (snapToGrid && !e.altKey) {
-              const gridSize = 15;
-              newX = Math.round(newX / gridSize) * gridSize;
-              newY = Math.round(newY / gridSize) * gridSize;
+              if (snapToGrid && !e.altKey) {
+                const gridSize = 15;
+                newX = Math.round(newX / gridSize) * gridSize;
+                newY = Math.round(newY / gridSize) * gridSize;
+              }
+
+              updatedNodes.push({
+                ...node,
+                x: newX,
+                y: newY,
+              });
             }
-
-            handleUpdateNode({
-              ...node,
-              x: newX,
-              y: newY,
-            });
+          }
+          if (updatedNodes.length > 0) {
+            handleUpdateNodes(updatedNodes);
           }
         }
         // 2. Moving selected line (edge)
@@ -1892,6 +2145,7 @@ export default function App() {
   ]);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId) || null;
+  const selectedNodes = project.nodes.filter((n) => selectedNodeIds.includes(n.id));
   const selectedEdge = project.edges.find((e) => e.id === selectedEdgeId) || null;
 
   const handleUpdateProjectDetails = (title: string, description: string) => {
@@ -2011,18 +2265,29 @@ export default function App() {
             nodes={project.nodes}
             edges={project.edges}
             selectedNodeId={selectedNodeId}
+            selectedNodeIds={selectedNodeIds}
             selectedEdgeId={selectedEdgeId}
             onSelectNode={(id) => {
               setSelectedNodeId(id);
               if (id) setSelectedEdgeId(null);
             }}
+            onSelectNodes={(ids) => {
+              setSelectedNodeIds(ids);
+              if (ids.length > 0) setSelectedEdgeId(null);
+            }}
             onSelectEdge={(id) => {
               setSelectedEdgeId(id);
-              if (id) setSelectedNodeId(null);
+              if (id) setSelectedNodeIds([]);
             }}
             onUpdateNode={handleUpdateNode}
+            onUpdateNodes={handleUpdateNodes}
             onDeleteNode={handleDeleteNode}
+            onDeleteNodes={handleDeleteSelectedNodes}
             onDuplicateNode={handleDuplicateNode}
+            onDuplicateNodes={handleDuplicateSelectedNodes}
+            onAlignSelectedNodes={handleAlignSelectedNodes}
+            onDistributeSelectedNodes={handleDistributeSelectedNodes}
+            onBatchChangeColor={handleBatchChangeColor}
             onCopyNode={handleCopyNode}
             onCutNode={handleCutNode}
             onPasteNodeAt={handlePasteNodeAt}
@@ -2044,7 +2309,7 @@ export default function App() {
                 onConfirm: () => {
                   pushUndo();
                   updateProjectData([], []);
-                  setSelectedNodeId(null);
+                  setSelectedNodeIds([]);
                   setSelectedEdgeId(null);
                   if (wsRef.current?.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ type: 'batch_sync', nodes: [], edges: [] }));
@@ -2055,9 +2320,8 @@ export default function App() {
             onToggleSnapToGrid={() => setSnapToGrid((prev) => !prev)}
             onSetGridMode={(mode) => setGridMode(mode)}
             onSelectAllNodes={() => {
-              if (project.nodes.length > 0) {
-                setSelectedNodeId(project.nodes[0].id);
-              }
+              setSelectedNodeIds(project.nodes.map((n) => n.id));
+              setSelectedEdgeId(null);
             }}
             onCreateEdge={handleCreateEdge}
             onUpdateEdge={handleUpdateEdge}
@@ -2103,10 +2367,22 @@ export default function App() {
           theme={currentTheme}
           t={t}
           selectedNode={selectedNode}
+          selectedNodes={selectedNodes}
+          selectedNodeIds={selectedNodeIds}
+          onSelectNodes={(ids) => {
+            setSelectedNodeIds(ids);
+            if (ids.length > 0) setSelectedEdgeId(null);
+          }}
           selectedEdge={selectedEdge}
           onUpdateNode={handleUpdateNode}
+          onUpdateNodes={handleUpdateNodes}
           onDeleteNode={handleDeleteNode}
+          onDeleteNodes={handleDeleteSelectedNodes}
           onDuplicateNode={handleDuplicateNode}
+          onDuplicateNodes={handleDuplicateSelectedNodes}
+          onAlignNodes={handleAlignSelectedNodes}
+          onDistributeNodes={handleDistributeSelectedNodes}
+          onBatchChangeColor={handleBatchChangeColor}
           onUpdateEdge={handleUpdateEdge}
           onDeleteEdge={handleDeleteEdge}
           gridMode={gridMode}

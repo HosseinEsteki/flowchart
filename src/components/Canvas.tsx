@@ -9,7 +9,7 @@ import {
 } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
-import { getPortPosition, calculateEdgePath, Point, getNodeBoundingBox } from '../utils/canvasMath';
+import { getPortPosition, calculateEdgePath, Point, getNodeBoundingBox, doesBoxIntersectNode } from '../utils/canvasMath';
 import { renderNodeShapePath, trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
 import { ContextMenu, ContextMenuTarget } from './ContextMenu';
 import {
@@ -27,6 +27,17 @@ import {
   ArrowLeftRight,
   Image as ImageIcon,
   Upload,
+  MousePointer,
+  Hand,
+  Layers,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Minimize2,
+  Maximize2,
+  Grid,
+  CheckSquare,
 } from 'lucide-react';
 
 interface CanvasProps {
@@ -35,12 +46,20 @@ interface CanvasProps {
   nodes: FlowchartNode[];
   edges: FlowchartEdge[];
   selectedNodeId: string | null;
+  selectedNodeIds?: string[];
   selectedEdgeId: string | null;
   onSelectNode: (id: string | null) => void;
+  onSelectNodes?: (ids: string[]) => void;
   onSelectEdge: (id: string | null) => void;
   onUpdateNode: (node: FlowchartNode) => void;
+  onUpdateNodes?: (nodes: FlowchartNode[]) => void;
   onDeleteNode: (id: string) => void;
+  onDeleteNodes?: (ids: string[]) => void;
   onDuplicateNode: (id: string) => void;
+  onDuplicateNodes?: (ids: string[]) => void;
+  onAlignSelectedNodes?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  onDistributeSelectedNodes?: (direction: 'horizontal' | 'vertical') => void;
+  onBatchChangeColor?: (fill?: string, stroke?: string, textColor?: string) => void;
   onCreateEdge: (edge: FlowchartEdge) => void;
   onUpdateEdge: (edge: FlowchartEdge) => void;
   onDeleteEdge: (id: string) => void;
@@ -83,12 +102,20 @@ export const Canvas: React.FC<CanvasProps> = ({
   nodes,
   edges,
   selectedNodeId,
+  selectedNodeIds,
   selectedEdgeId,
   onSelectNode,
+  onSelectNodes,
   onSelectEdge,
   onUpdateNode,
+  onUpdateNodes,
   onDeleteNode,
+  onDeleteNodes,
   onDuplicateNode,
+  onDuplicateNodes,
+  onAlignSelectedNodes,
+  onDistributeSelectedNodes,
+  onBatchChangeColor,
   onCreateEdge,
   onUpdateEdge,
   onDeleteEdge,
@@ -121,10 +148,46 @@ export const Canvas: React.FC<CanvasProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Dragging state
+  // Normalized multiple selected node IDs
+  const effectiveSelectedIds = selectedNodeIds !== undefined
+    ? selectedNodeIds
+    : (selectedNodeId ? [selectedNodeId] : []);
+
+  const handleSelectNodeIds = useCallback((ids: string[]) => {
+    if (onSelectNodes) {
+      onSelectNodes(ids);
+    } else {
+      onSelectNode(ids.length > 0 ? ids[0] : null);
+    }
+  }, [onSelectNode, onSelectNodes]);
+
+  // Canvas interaction mode: Select tool (arrow/marquee) or Hand tool (pan)
+  const [canvasMode, setCanvasMode] = useState<'select' | 'hand'>('select');
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+
+  // Dragging & Panning state
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
 
+  // Marquee selection box state
+  const [isMarquee, setIsMarquee] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const marqueeInitialSelectionRef = useRef<string[]>([]);
+
+  // Multi-node dragging state
+  const [draggedNodeIds, setDraggedNodeIds] = useState<string[] | null>(null);
+  const dragStartMouseCanvasRef = useRef<Point>({ x: 0, y: 0 });
+  const dragStartPositionsRef = useRef<Map<string, Point>>(new Map());
+  const dragPrimaryNodeIdRef = useRef<string | null>(null);
+  const hasMovedDuringDragRef = useRef(false);
+  const singleClickToSelectRef = useRef<string | null>(null);
+
+  // Keep single draggedNodeId for backward compatibility / fallback
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
 
@@ -376,9 +439,45 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
   };
 
+  // Keyboard listener for Space (Hold to Pan) and V (Select) / H (Hand) tools
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest('input, textarea, [contenteditable="true"]')
+      ) {
+        return;
+      }
+      if (e.code === 'Space' && !e.repeat) {
+        setIsSpacePressed(true);
+      }
+      if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        setCanvasMode('select');
+      } else if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        setCanvasMode('hand');
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   // Canvas Mouse Down
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Only dismiss context menu and start panning if clicking on background canvas/svg
+    // Only dismiss context menu and start panning/marquee if clicking on background canvas/svg
     const targetEl = e.target as HTMLElement;
     const isBackground =
       e.button === 1 ||
@@ -388,12 +487,33 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     if (isBackground) {
       setContextMenu(null);
-      setIsPanning(true);
-      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-      onSelectNode(null);
-      onSelectEdge(null);
       setEditingNodeId(null);
       setEditingEdgeId(null);
+
+      // Pan canvas if middle-click (button 1), spacebar is held, or in 'hand' tool mode
+      if (e.button === 1 || isSpacePressed || canvasMode === 'hand') {
+        setIsPanning(true);
+        setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+        return;
+      }
+
+      // Left click on background: Start Rubber-band / Marquee selection box!
+      if (e.button === 0) {
+        const isModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+        const canvasPt = screenToCanvas(e.clientX, e.clientY);
+        setIsMarquee(true);
+        marqueeInitialSelectionRef.current = isModifier ? [...effectiveSelectedIds] : [];
+        setSelectionBox({
+          startX: canvasPt.x,
+          startY: canvasPt.y,
+          currentX: canvasPt.x,
+          currentY: canvasPt.y,
+        });
+        if (!isModifier) {
+          handleSelectNodeIds([]);
+          onSelectEdge(null);
+        }
+      }
     }
   };
 
@@ -402,7 +522,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     const canvasPt = screenToCanvas(e.clientX, e.clientY);
     onCursorMove(Math.round(canvasPt.x), Math.round(canvasPt.y));
 
-    // Handle Panning
+    // 1. Handle Canvas Panning
     if (isPanning) {
       setPan({
         x: e.clientX - panStart.x,
@@ -411,7 +531,85 @@ export const Canvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    // Handle Node Dragging
+    // 2. Handle Marquee Box Selection
+    if (isMarquee && selectionBox) {
+      const updatedBox = {
+        startX: selectionBox.startX,
+        startY: selectionBox.startY,
+        currentX: canvasPt.x,
+        currentY: canvasPt.y,
+      };
+      setSelectionBox(updatedBox);
+
+      const boxRect = {
+        x1: updatedBox.startX,
+        y1: updatedBox.startY,
+        x2: updatedBox.currentX,
+        y2: updatedBox.currentY,
+      };
+
+      const intersectingIds = nodes
+        .filter((n) => doesBoxIntersectNode(boxRect, n))
+        .map((n) => n.id);
+
+      const combined = Array.from(new Set([...marqueeInitialSelectionRef.current, ...intersectingIds]));
+      handleSelectNodeIds(combined);
+      return;
+    }
+
+    // 3. Handle Multi-Node Dragging (Dragging multiple shapes together)
+    if (draggedNodeIds && draggedNodeIds.length > 0) {
+      const rawDx = canvasPt.x - dragStartMouseCanvasRef.current.x;
+      const rawDy = canvasPt.y - dragStartMouseCanvasRef.current.y;
+
+      if (Math.hypot(rawDx, rawDy) > 3) {
+        hasMovedDuringDragRef.current = true;
+        singleClickToSelectRef.current = null;
+      }
+
+      let effectiveDx = rawDx;
+      let effectiveDy = rawDy;
+
+      if (snapToGrid) {
+        const primaryId = dragPrimaryNodeIdRef.current || draggedNodeIds[0];
+        const primaryInitial = dragStartPositionsRef.current.get(primaryId);
+        if (primaryInitial) {
+          const targetX = primaryInitial.x + rawDx;
+          const targetY = primaryInitial.y + rawDy;
+          const snappedX = Math.round(targetX / 15) * 15;
+          const snappedY = Math.round(targetY / 15) * 15;
+          effectiveDx = snappedX - primaryInitial.x;
+          effectiveDy = snappedY - primaryInitial.y;
+        }
+      }
+
+      const updatedList: FlowchartNode[] = [];
+      for (const n of nodes) {
+        if (draggedNodeIds.includes(n.id) && !n.locked) {
+          const orig = dragStartPositionsRef.current.get(n.id);
+          if (orig) {
+            updatedList.push({
+              ...n,
+              x: Math.round(orig.x + effectiveDx),
+              y: Math.round(orig.y + effectiveDy),
+            });
+          }
+        }
+      }
+
+      if (updatedList.length > 0) {
+        if (onUpdateNodes) {
+          onUpdateNodes(updatedList);
+        } else {
+          for (const un of updatedList) {
+            onUpdateNode(un);
+          }
+        }
+      }
+      return;
+    }
+
+    // Fallback single dragged node if any
     if (draggedNodeId) {
       const node = nodes.find((n) => n.id === draggedNodeId);
       if (node && !node.locked) {
@@ -543,6 +741,33 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Mouse Up handler
   const handleMouseUp = () => {
     setIsPanning(false);
+
+    // Complete Marquee Selection
+    if (isMarquee) {
+      if (selectionBox) {
+        const dx = Math.abs(selectionBox.currentX - selectionBox.startX);
+        const dy = Math.abs(selectionBox.currentY - selectionBox.startY);
+        if (dx < 5 && dy < 5 && marqueeInitialSelectionRef.current.length === 0) {
+          handleSelectNodeIds([]);
+          onSelectEdge(null);
+        }
+      }
+      setIsMarquee(false);
+      setSelectionBox(null);
+    }
+
+    // Complete Node Dragging
+    if (draggedNodeIds) {
+      if (!hasMovedDuringDragRef.current && singleClickToSelectRef.current) {
+        handleSelectNodeIds([singleClickToSelectRef.current]);
+      }
+      setDraggedNodeIds(null);
+      dragPrimaryNodeIdRef.current = null;
+      dragStartPositionsRef.current = new Map();
+      singleClickToSelectRef.current = null;
+      hasMovedDuringDragRef.current = false;
+    }
+
     setDraggedNodeId(null);
     setResizingNodeId(null);
     setResizeStart(null);
@@ -684,7 +909,15 @@ export const Canvas: React.FC<CanvasProps> = ({
           });
         }
       }}
-      className="relative flex-1 h-[calc(100vh-3.5rem)] overflow-hidden cursor-crosshair select-none"
+      className={`relative flex-1 h-[calc(100vh-3.5rem)] overflow-hidden select-none ${
+        isPanning
+          ? 'cursor-grabbing'
+          : isSpacePressed || canvasMode === 'hand'
+          ? 'cursor-grab'
+          : isMarquee
+          ? 'cursor-crosshair'
+          : 'cursor-default'
+      }`}
       style={{ backgroundColor: theme.ui.canvasBg }}
     >
       {/* SVG Canvas Root */}
@@ -936,7 +1169,8 @@ export const Canvas: React.FC<CanvasProps> = ({
           {/* 2. NODES LAYER */}
           <g id="flowchart-nodes-layer">
             {nodes.map((node) => {
-              const isSelected = selectedNodeId === node.id;
+              const isSelected = effectiveSelectedIds.includes(node.id);
+              const isSingleSelected = isSelected && effectiveSelectedIds.length === 1;
               const shapeRender = renderNodeShapePath(node);
               const ports: FlowchartPort[] = ['top', 'right', 'bottom', 'left'];
 
@@ -947,22 +1181,54 @@ export const Canvas: React.FC<CanvasProps> = ({
                   className="cursor-move"
                   onMouseDown={(e) => {
                     e.stopPropagation();
-                    if (e.button === 0) {
-                      setContextMenu(null);
-                      onSelectNode(node.id);
-                      onSelectEdge(null);
-                      setDraggedNodeId(node.id);
-                      const canvasPt = screenToCanvas(e.clientX, e.clientY);
-                      setDragOffset({
-                        x: canvasPt.x - node.x,
-                        y: canvasPt.y - node.y,
-                      });
+                    if (e.button !== 0) return;
+                    setContextMenu(null);
+                    const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                    const isModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+
+                    const isAlreadySelected = effectiveSelectedIds.includes(node.id);
+                    let nextSelectedIds: string[];
+
+                    if (isModifier) {
+                      if (isAlreadySelected) {
+                        nextSelectedIds = effectiveSelectedIds.filter((id) => id !== node.id);
+                        handleSelectNodeIds(nextSelectedIds);
+                        return;
+                      } else {
+                        nextSelectedIds = [...effectiveSelectedIds, node.id];
+                        handleSelectNodeIds(nextSelectedIds);
+                      }
+                    } else {
+                      if (isAlreadySelected) {
+                        nextSelectedIds = effectiveSelectedIds;
+                        singleClickToSelectRef.current = node.id;
+                      } else {
+                        nextSelectedIds = [node.id];
+                        handleSelectNodeIds(nextSelectedIds);
+                        singleClickToSelectRef.current = null;
+                      }
                     }
+
+                    onSelectEdge(null);
+                    setDraggedNodeIds(nextSelectedIds);
+                    dragPrimaryNodeIdRef.current = node.id;
+                    dragStartMouseCanvasRef.current = canvasPt;
+                    hasMovedDuringDragRef.current = false;
+
+                    const posMap = new Map<string, Point>();
+                    for (const n of nodes) {
+                      if (nextSelectedIds.includes(n.id)) {
+                        posMap.set(n.id, { x: n.x, y: n.y });
+                      }
+                    }
+                    dragStartPositionsRef.current = posMap;
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    onSelectNode(node.id);
+                    if (!effectiveSelectedIds.includes(node.id)) {
+                      handleSelectNodeIds([node.id]);
+                    }
                     onSelectEdge(null);
                     setContextMenu({
                       isOpen: true,
@@ -1136,7 +1402,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                   })}
 
                   {/* Multi-Directional Resize Handles (4 Corners + Edges) */}
-                  {isSelected && !node.locked && (
+                  {isSingleSelected && !node.locked && (
                     <g className="resize-handles-group interactive-overlay">
                       {/* Top-Left (NW) */}
                       <g
@@ -1275,6 +1541,70 @@ export const Canvas: React.FC<CanvasProps> = ({
               );
             })}
           </g>
+
+          {/* 2.6. MARQUEE / BOX SELECTION RECTANGLE */}
+          {selectionBox && (
+            <rect
+              x={Math.min(selectionBox.startX, selectionBox.currentX)}
+              y={Math.min(selectionBox.startY, selectionBox.currentY)}
+              width={Math.abs(selectionBox.currentX - selectionBox.startX)}
+              height={Math.abs(selectionBox.currentY - selectionBox.startY)}
+              fill="rgba(59, 130, 246, 0.14)"
+              stroke="#2563EB"
+              strokeWidth={1.5}
+              strokeDasharray="5,4"
+              rx={3}
+              className="pointer-events-none"
+            />
+          )}
+
+          {/* 2.7. MULTI-SELECTION GROUP BOUNDING BOX & BADGE */}
+          {(() => {
+            if (effectiveSelectedIds.length <= 1) return null;
+            const selectedNodesList = nodes.filter((n) => effectiveSelectedIds.includes(n.id));
+            if (selectedNodesList.length <= 1) return null;
+            const groupBbox = getNodeBoundingBox(selectedNodesList, 12);
+
+            return (
+              <g className="multi-selection-group pointer-events-none select-none">
+                <rect
+                  x={groupBbox.minX}
+                  y={groupBbox.minY}
+                  width={groupBbox.width}
+                  height={groupBbox.height}
+                  fill="rgba(59, 130, 246, 0.05)"
+                  stroke="#2563EB"
+                  strokeWidth={1.5}
+                  strokeDasharray="6,4"
+                  rx={8}
+                />
+                <g transform={`translate(${groupBbox.minX + groupBbox.width / 2}, ${groupBbox.minY - 14})`}>
+                  <rect
+                    x={-75}
+                    y={-12}
+                    width={150}
+                    height={24}
+                    rx={12}
+                    fill="#2563EB"
+                    stroke="#FFFFFF"
+                    strokeWidth={1.5}
+                    className="shadow-md"
+                  />
+                  <text
+                    x={0}
+                    y={4.5}
+                    textAnchor="middle"
+                    fill="#FFFFFF"
+                    fontSize={11}
+                    fontWeight="bold"
+                    fontFamily="Vazirmatn, sans-serif"
+                  >
+                    {selectedNodesList.length} شکل انتخاب شده
+                  </text>
+                </g>
+              </g>
+            );
+          })()}
 
           {/* 2.5. SELECTED EDGE OVERLAY & INTERACTIVE WAYPOINTS (Always on top of nodes) */}
           {selectedEdgeId && (() => {
@@ -1428,8 +1758,129 @@ export const Canvas: React.FC<CanvasProps> = ({
         </g>
       </svg>
 
-      {/* Floating Context Toolbar for Selected Node */}
-      {selectedNode && (
+      {/* Floating Context Toolbar for Multi-Selected Nodes */}
+      {effectiveSelectedIds.length > 1 && (
+        <div
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 p-1.5 rounded-2xl shadow-2xl border backdrop-blur-md animate-in fade-in select-none text-xs"
+          style={{
+            backgroundColor: theme.ui.cardBg,
+            borderColor: theme.ui.border,
+            color: theme.ui.textPrimary,
+          }}
+        >
+          {/* Badge */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/15 text-blue-600 dark:text-blue-400 rounded-xl font-bold text-xs">
+            <Layers className="w-4 h-4" />
+            <span>{effectiveSelectedIds.length} شکل انتخاب شده</span>
+          </div>
+
+          <div className="w-[1px] h-4 bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+          {/* Alignment buttons */}
+          {onAlignSelectedNodes && (
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => onAlignSelectedNodes('right')}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="تراز راست"
+              >
+                <AlignRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onAlignSelectedNodes('center')}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="تراز وسط افقی"
+              >
+                <AlignCenter className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onAlignSelectedNodes('left')}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="تراز چپ"
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onAlignSelectedNodes('top')}
+                className="px-1.5 py-1 text-[11px] font-semibold rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                title="تراز بالا"
+              >
+                بالا
+              </button>
+              <button
+                type="button"
+                onClick={() => onAlignSelectedNodes('bottom')}
+                className="px-1.5 py-1 text-[11px] font-semibold rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                title="تراز پایین"
+              >
+                پایین
+              </button>
+            </div>
+          )}
+
+          <div className="w-[1px] h-4 bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+          {/* Quick Color Presets for Group */}
+          {onBatchChangeColor && (
+            <div className="flex items-center gap-1 pl-1 border-l" style={{ borderColor: theme.ui.border }}>
+              {theme.nodeColorPresets.slice(0, 4).map((preset) => (
+                <button
+                  key={preset.name}
+                  onClick={() => onBatchChangeColor(preset.fill, preset.stroke, preset.text)}
+                  className="w-4 h-4 rounded-md border transition-transform hover:scale-110"
+                  style={{ backgroundColor: preset.fill, borderColor: preset.stroke }}
+                  title={`اعمال رنگ ${preset.name} به همه اشکال انتخاب‌شده`}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Duplicate selected */}
+          {onDuplicateNodes && (
+            <button
+              type="button"
+              onClick={() => onDuplicateNodes(effectiveSelectedIds)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border hover:opacity-85 text-xs font-semibold"
+              style={{ borderColor: theme.ui.border }}
+              title="تکثیر تمام اشکال انتخاب‌شده (Ctrl+D)"
+            >
+              <Copy className="w-3.5 h-3.5 text-blue-500" />
+              <span>تکثیر</span>
+            </button>
+          )}
+
+          {/* Delete selected */}
+          {onDeleteNodes && (
+            <button
+              type="button"
+              onClick={() => onDeleteNodes(effectiveSelectedIds)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 text-xs font-semibold"
+              style={{ borderColor: theme.ui.border }}
+              title="حذف تمام اشکال انتخاب‌شده (Delete)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>حذف</span>
+            </button>
+          )}
+
+          {/* Deselect button */}
+          <button
+            type="button"
+            onClick={() => handleSelectNodeIds([])}
+            className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold opacity-70"
+            title="لغو انتخاب (Esc)"
+          >
+            لغو
+          </button>
+        </div>
+      )}
+
+      {/* Floating Context Toolbar for Single Selected Node */}
+      {effectiveSelectedIds.length === 1 && selectedNode && (
         <div
           className="absolute z-20 flex items-center gap-1.5 p-1.5 rounded-xl shadow-lg border backdrop-blur-md transition-all animate-in fade-in"
           style={{
@@ -1798,6 +2249,44 @@ export const Canvas: React.FC<CanvasProps> = ({
           </div>
         </div>
       )}
+
+      {/* Canvas Tool Mode Switcher (Select / Hand) */}
+      <div
+        className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 p-1 rounded-2xl shadow-xl border backdrop-blur-md select-none text-xs"
+        style={{
+          backgroundColor: theme.ui.cardBg,
+          borderColor: theme.ui.border,
+          color: theme.ui.textPrimary,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setCanvasMode('select')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all ${
+            canvasMode === 'select' && !isSpacePressed
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'hover:opacity-80'
+          }`}
+          title="ابزار انتخاب و کشیدن کادر برای چندین شکل (کلید V)"
+        >
+          <MousePointer className="w-3.5 h-3.5" />
+          <span>انتخاب (V)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setCanvasMode('hand')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all ${
+            canvasMode === 'hand' || isSpacePressed
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'hover:opacity-80'
+          }`}
+          title="ابزار دست برای جابجایی بوم (کلید H یا نگه‌داشتن Space)"
+        >
+          <Hand className="w-3.5 h-3.5" />
+          <span>جابجایی بوم (Space)</span>
+        </button>
+      </div>
 
       {/* Minimap Radar in Bottom Corner with Interactive Click & Drag Navigation */}
       <div

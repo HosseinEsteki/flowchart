@@ -36,10 +36,19 @@ interface PropertiesPanelProps {
   theme: ColorTheme;
   t: TranslationDictionary;
   selectedNode: FlowchartNode | null;
+  selectedNodes?: FlowchartNode[];
+  selectedNodeIds?: string[];
+  onSelectNodes?: (ids: string[]) => void;
   selectedEdge: FlowchartEdge | null;
   onUpdateNode: (node: FlowchartNode) => void;
+  onUpdateNodes?: (nodes: FlowchartNode[]) => void;
   onDeleteNode: (id: string) => void;
+  onDeleteNodes?: (ids: string[]) => void;
   onDuplicateNode: (id: string) => void;
+  onDuplicateNodes?: (ids: string[]) => void;
+  onAlignNodes?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  onDistributeNodes?: (direction: 'horizontal' | 'vertical') => void;
+  onBatchChangeColor?: (fill?: string, stroke?: string, textColor?: string) => void;
   onUpdateEdge: (edge: FlowchartEdge) => void;
   onDeleteEdge: (id: string) => void;
   gridMode: 'dots' | 'lines' | 'none';
@@ -57,10 +66,19 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   theme,
   t,
   selectedNode,
+  selectedNodes,
+  selectedNodeIds,
+  onSelectNodes,
   selectedEdge,
   onUpdateNode,
+  onUpdateNodes,
   onDeleteNode,
+  onDeleteNodes,
   onDuplicateNode,
+  onDuplicateNodes,
+  onAlignNodes,
+  onDistributeNodes,
+  onBatchChangeColor,
   onUpdateEdge,
   onDeleteEdge,
   gridMode,
@@ -117,8 +135,203 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         )}
       </div>
 
-      {/* ================= CASE 1: NODE SELECTED ================= */}
-      {selectedNode && (
+      {/* ================= CASE 0: MULTIPLE NODES SELECTED ================= */}
+      {selectedNodes && selectedNodes.length > 1 && (
+        <div className="space-y-4 text-right animate-in fade-in">
+          {/* Header Card */}
+          <div
+            className="p-3 rounded-xl border flex items-center justify-between"
+            style={{ backgroundColor: theme.ui.surface, borderColor: theme.ui.border }}
+          >
+            <div className="flex items-center gap-2">
+              <Layers className="w-5 h-5 text-blue-500" />
+              <div>
+                <div className="text-xs font-bold">انتخاب گروهی اشکال</div>
+                <div className="text-[10px] opacity-70">
+                  {selectedNodes.length} شکل به‌طور همزمان انتخاب شده است
+                </div>
+              </div>
+            </div>
+            {onSelectNodes && (
+              <button
+                type="button"
+                onClick={() => onSelectNodes([])}
+                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+              >
+                لغو انتخاب
+              </button>
+            )}
+          </div>
+
+          {/* Quick Tip for Dragging */}
+          <div
+            className="p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+            style={{ borderColor: 'rgba(59, 130, 246, 0.3)' }}
+          >
+            <span className="text-base shrink-0">💡</span>
+            <span>
+              روی هر کدام از این شکل‌ها کلیک کرده و درگ کنید تا <strong>تمام اشکال با هم جابجا شوند</strong>. همچنین می‌توانید از کلیدهای جهت‌نما (←, →, ↑, ↓) استفاده کنید.
+            </span>
+          </div>
+
+          {/* Alignment Tools */}
+          {onAlignNodes && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold flex items-center gap-1.5">
+                <AlignLeft className="w-3.5 h-3.5 text-blue-500" />
+                <span>تراز کردن اشکال نسبت به هم</span>
+              </label>
+              <div className="grid grid-cols-3 gap-1">
+                <button
+                  type="button"
+                  onClick={() => onAlignNodes('right')}
+                  className="p-1.5 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-1"
+                  style={{ borderColor: theme.ui.border }}
+                  title="تراز راست"
+                >
+                  <AlignRight className="w-3.5 h-3.5" />
+                  <span>راست</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAlignNodes('center')}
+                  className="p-1.5 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-1"
+                  style={{ borderColor: theme.ui.border }}
+                  title="تراز وسط افقی"
+                >
+                  <AlignCenter className="w-3.5 h-3.5" />
+                  <span>مرکز</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAlignNodes('left')}
+                  className="p-1.5 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-1"
+                  style={{ borderColor: theme.ui.border }}
+                  title="تراز چپ"
+                >
+                  <AlignLeft className="w-3.5 h-3.5" />
+                  <span>چپ</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1">
+                <button
+                  type="button"
+                  onClick={() => onAlignNodes('top')}
+                  className="p-1.5 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+                  style={{ borderColor: theme.ui.border }}
+                  title="تراز بالا"
+                >
+                  بالا
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAlignNodes('middle')}
+                  className="p-1.5 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+                  style={{ borderColor: theme.ui.border }}
+                  title="تراز وسط عمودی"
+                >
+                  وسط
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAlignNodes('bottom')}
+                  className="p-1.5 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+                  style={{ borderColor: theme.ui.border }}
+                  title="تراز پایین"
+                >
+                  پایین
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Distribution Tools */}
+          {onDistributeNodes && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold flex items-center gap-1.5">
+                <Grid className="w-3.5 h-3.5 text-blue-500" />
+                <span>توزیع یکنواخت فاصله‌ها</span>
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onDistributeNodes('horizontal')}
+                  className="p-2 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: theme.ui.border }}
+                  title="توزیع یکنواخت افقی"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-blue-500" />
+                  <span>افقی یکنواخت</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDistributeNodes('vertical')}
+                  className="p-2 rounded-lg border text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: theme.ui.border }}
+                  title="توزیع یکنواخت عمودی"
+                >
+                  <span>عمودی یکنواخت</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Batch Color Swatches */}
+          {onBatchChangeColor && (
+            <div className="space-y-3 pt-1 border-t" style={{ borderColor: theme.ui.border }}>
+              <label className="text-xs font-bold flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5 text-blue-500" />
+                <span>تغییر رنگ دسته‌جمعی</span>
+              </label>
+              <div className="grid grid-cols-5 gap-1.5">
+                {COLOR_SWATCHES.slice(0, 10).map((c) => (
+                  <button
+                    key={c.fill}
+                    type="button"
+                    onClick={() => onBatchChangeColor(c.fill, c.stroke, c.text)}
+                    className="h-7 rounded-lg border transition-transform hover:scale-105 shadow-xs"
+                    style={{ backgroundColor: c.fill, borderColor: c.stroke }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Batch Actions */}
+          <div className="space-y-2 pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+            <label className="text-xs font-bold opacity-70">عملیات گروهی</label>
+            <div className="grid grid-cols-2 gap-2">
+              {onDuplicateNodes && (
+                <button
+                  type="button"
+                  onClick={() => onDuplicateNodes(selectedNodeIds || [])}
+                  className="p-2 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  style={{ borderColor: theme.ui.border }}
+                >
+                  <Copy className="w-3.5 h-3.5 text-blue-500" />
+                  <span>تکثیر همه (Ctrl+D)</span>
+                </button>
+              )}
+              {onDeleteNodes && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteNodes(selectedNodeIds || [])}
+                  className="p-2 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                  style={{ borderColor: theme.ui.border }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>حذف همه (Del)</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= CASE 1: SINGLE NODE SELECTED ================= */}
+      {(!selectedNodes || selectedNodes.length <= 1) && selectedNode && (
         <div className="space-y-4 text-right">
           {/* Label Text with Multi-line Support */}
           <div className="space-y-1.5">
@@ -1089,7 +1302,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       )}
 
       {/* ================= CASE 3: NO SELECTION (CANVAS & DEFAULTS) ================= */}
-      {!selectedNode && !selectedEdge && (
+      {(!selectedNodes || selectedNodes.length === 0) && !selectedNode && !selectedEdge && (
         <div className="space-y-4 text-right">
           {/* Quick Button to Site Defaults */}
           {onOpenDefaultSettings && (

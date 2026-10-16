@@ -604,3 +604,28 @@ export function getNodeBoundingBox(nodes: FlowchartNode[], padding = 60) {
     height: Math.max(300, maxY - minY),
   };
 }
+
+/**
+ * Checks if an axis-aligned box intersects with a node
+ */
+export function doesBoxIntersectNode(
+  box: { x1: number; y1: number; x2: number; y2: number },
+  node: FlowchartNode
+): boolean {
+  const minX = Math.min(box.x1, box.x2);
+  const maxX = Math.max(box.x1, box.x2);
+  const minY = Math.min(box.y1, box.y2);
+  const maxY = Math.max(box.y1, box.y2);
+
+  const nodeMinX = node.x;
+  const nodeMaxX = node.x + node.width;
+  const nodeMinY = node.y;
+  const nodeMaxY = node.y + node.height;
+
+  return !(
+    nodeMaxX < minX ||
+    nodeMinX > maxX ||
+    nodeMaxY < minY ||
+    nodeMinY > maxY
+  );
+}
