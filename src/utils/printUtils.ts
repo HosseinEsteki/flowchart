@@ -230,30 +230,69 @@ export function generatePageSvgMarkup(
           .join('\n');
       }
 
-      // Multi-line text support
-      const lines = (node.label || '').split('\n');
+      // Multi-line text & image layout support
+      const rawText = node.label || '';
+      const lines = rawText.split('\n');
       const lineHeight = node.fontSize * 1.3;
-      const startY = node.height / 2 - ((lines.length - 1) * lineHeight) / 2 + node.fontSize * 0.35;
+      const hasImg = Boolean(node.imageUrl);
+      const hasText = Boolean(rawText.trim());
+      const pos = node.imagePosition || 'top';
+      const isInline = pos === 'inline';
+      const isCover = pos === 'cover';
+
+      let imgX = 6;
+      let imgY = 6;
+      let imgW = Math.max(10, node.width - 12);
+      let imgH = Math.max(10, node.height - 12);
 
       const align = node.textAlign || 'center';
-      const textAnchor = align === 'right' ? 'end' : align === 'left' ? 'start' : 'middle';
-      const textX = align === 'right' ? node.width - 12 : align === 'left' ? 12 : node.width / 2;
+      let textAnchor = align === 'right' ? 'end' : align === 'left' ? 'start' : 'middle';
+      let textX = node.width / 2;
+      let startY = node.height / 2 - ((lines.length - 1) * lineHeight) / 2 + node.fontSize * 0.35;
+
+      if (hasImg && hasText) {
+        if (isInline) {
+          const iconSize = Math.min(node.height - 12, Math.min(50, Math.max(26, node.width * 0.28)));
+          imgX = node.width - iconSize - 8;
+          imgY = (node.height - iconSize) / 2;
+          imgW = iconSize;
+          imgH = iconSize;
+          textX = (node.width - iconSize - 10) / 2;
+          textAnchor = 'middle';
+        } else if (!isCover) {
+          const textBlockH = lines.length * lineHeight;
+          imgH = Math.max(16, node.height - textBlockH - 14);
+          imgW = Math.max(10, node.width - 12);
+          startY = node.height - 8 - ((lines.length - 1) * lineHeight);
+        }
+      } else if (!hasImg) {
+        if (align === 'right') textX = node.width - 12;
+        else if (align === 'left') textX = 12;
+      }
+
       const fontFam = node.fontFamily || 'Vazirmatn, system-ui, sans-serif';
       const fontSty = node.fontStyle || 'normal';
 
-      const textSpans = lines
-        .map((line, idx) => {
-          return `<tspan x="${textX}" y="${startY + idx * lineHeight}">${line}</tspan>`;
-        })
-        .join('');
+      const textSpans = hasText
+        ? lines
+            .map((line, idx) => `<tspan x="${textX}" y="${startY + idx * lineHeight}">${line || '&#160;'}</tspan>`)
+            .join('')
+        : '';
+
+      const imgTag = hasImg
+        ? `<image href="${node.imageUrl}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="${node.imageFit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}" />`
+        : '';
+
+      const textElement = hasText
+        ? `<text fill="${node.textColor}" font-size="${node.fontSize}" font-weight="${node.fontWeight || 'normal'}" font-style="${fontSty}" font-family="${fontFam}" text-anchor="${textAnchor}">${textSpans}</text>`
+        : '';
 
       return `
         <g transform="translate(${node.x}, ${node.y})" class="flowchart-node">
           <${shape.element} ${propsStr} />
           ${auxStr}
-          <text fill="${node.textColor}" font-size="${node.fontSize}" font-weight="${node.fontWeight || 'normal'}" font-style="${fontSty}" font-family="${fontFam}" text-anchor="${textAnchor}">
-            ${textSpans}
-          </text>
+          ${imgTag}
+          ${textElement}
         </g>
       `;
     })
@@ -531,6 +570,12 @@ export function generatePrintReportHtml(
                 </div>
                 <span style="font-size: 10px; color: #64748b; font-family: monospace; font-weight: 600;">[بخش ۵۰٪]</span>
               </div>
+
+              ${page.imageUrl && settings.showPageImage !== false ? `
+                <div class="notes-attached-image" style="margin-bottom: 8px; text-align: center;">
+                  <img src="${page.imageUrl}" alt="تصویر پیوست صفحه" style="max-height: 130px; max-width: 100%; object-fit: contain; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); background: #ffffff;" />
+                </div>
+              ` : ''}
 
               ${(hasDescription || hasNotes) ? `
                 <div class="notes-content" style="font-size: ${settings.descFontSize}px; font-weight: ${settings.fontWeight}; text-align: ${settings.textAlign}; margin-bottom: 6px;">
@@ -1347,6 +1392,192 @@ export function triggerPrintDialog(
   }, 400);
 }
 
+// Helper to render 50/50 split of Diagram and Notes Card in jsPDF
+function render5050PagePdf(
+  pdf: jsPDF,
+  page: FlowchartPage,
+  settings: PrintSettings,
+  imgData: string,
+  svgWidth: number,
+  svgHeight: number,
+  currentY: number,
+  pageWidth: number,
+  pageHeight: number,
+  margin: number,
+  footerHeight: number
+) {
+  const availWidth = pageWidth - margin * 2;
+  const availHeight = pageHeight - currentY - margin - footerHeight;
+  const splitPos = settings.splitPosition || 'shapes-top';
+  const gap = 5; // mm
+
+  let diagramX: number;
+  let diagramY: number;
+  let diagramW: number;
+  let diagramH: number;
+
+  let notesX: number;
+  let notesY: number;
+  let notesW: number;
+  let notesH: number;
+
+  if (splitPos === 'shapes-top') {
+    const halfH = (availHeight - gap) / 2;
+    diagramX = margin;
+    diagramY = currentY;
+    diagramW = availWidth;
+    diagramH = halfH;
+
+    notesX = margin;
+    notesY = currentY + halfH + gap;
+    notesW = availWidth;
+    notesH = halfH;
+  } else if (splitPos === 'shapes-bottom') {
+    const halfH = (availHeight - gap) / 2;
+    notesX = margin;
+    notesY = currentY;
+    notesW = availWidth;
+    notesH = halfH;
+
+    diagramX = margin;
+    diagramY = currentY + halfH + gap;
+    diagramW = availWidth;
+    diagramH = halfH;
+  } else if (splitPos === 'shapes-right') {
+    const halfW = (availWidth - gap) / 2;
+    notesX = margin;
+    notesY = currentY;
+    notesW = halfW;
+    notesH = availHeight;
+
+    diagramX = margin + halfW + gap;
+    diagramY = currentY;
+    diagramW = halfW;
+    diagramH = availHeight;
+  } else {
+    // shapes-left
+    const halfW = (availWidth - gap) / 2;
+    diagramX = margin;
+    diagramY = currentY;
+    diagramW = halfW;
+    diagramH = availHeight;
+
+    notesX = margin + halfW + gap;
+    notesY = currentY;
+    notesW = halfW;
+    notesH = availHeight;
+  }
+
+  // 1. Render Diagram in 50% box
+  const imgAspect = svgWidth / svgHeight;
+  const pad = 2.5;
+  const boxInnerW = diagramW - pad * 2;
+  const boxInnerH = diagramH - pad * 2;
+
+  let renderW = boxInnerW;
+  let renderH = boxInnerW / imgAspect;
+  if (renderH > boxInnerH) {
+    renderH = boxInnerH;
+    renderW = boxInnerH * imgAspect;
+  }
+
+  const posX = diagramX + (diagramW - renderW) / 2;
+  const posY = diagramY + (diagramH - renderH) / 2;
+
+  if (settings.showBorders || settings.diagramBorder !== 'none') {
+    pdf.setDrawColor(203, 213, 225);
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(diagramX, diagramY, diagramW, diagramH, 'FD');
+  }
+
+  pdf.addImage(imgData, 'JPEG', posX, posY, renderW, renderH);
+
+  // 2. Render Notes Card in 50% box
+  pdf.setFillColor(250, 251, 254);
+  pdf.setDrawColor(203, 213, 225);
+  pdf.rect(notesX, notesY, notesW, notesH, 'FD');
+
+  // Accent stripe
+  pdf.setDrawColor(37, 99, 235);
+  pdf.setLineWidth(0.8);
+  pdf.line(notesX + notesW, notesY, notesX + notesW, notesY + notesH);
+  pdf.setLineWidth(0.2);
+
+  let curNoteY = notesY + 5;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(37, 99, 235);
+  pdf.text(`[Notes & Key Points] ${page.name}`, notesX + 4, curNoteY);
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7);
+  pdf.setTextColor(100, 116, 139);
+  pdf.text('[50% Notes Area]', notesX + notesW - 4, curNoteY, { align: 'right' });
+
+  curNoteY += 3;
+  pdf.setDrawColor(226, 232, 240);
+  pdf.line(notesX + 4, curNoteY, notesX + notesW - 4, curNoteY);
+  curNoteY += 4;
+
+  const hasDesc = Boolean(page.description && page.description.trim());
+  const hasPageNotes = Boolean(settings.showNotes !== false && page.notes && page.notes.trim());
+
+  if (hasDesc) {
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(51, 65, 85);
+    const splitDesc = pdf.splitTextToSize(page.description || '', notesW - 8);
+    const maxLines = Math.min(splitDesc.length, 5);
+    pdf.text(splitDesc.slice(0, maxLines), notesX + 4, curNoteY);
+    curNoteY += maxLines * 3.5 + 2;
+  }
+
+  if (hasPageNotes) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(146, 64, 14);
+    const splitNotes = pdf.splitTextToSize(`Points: ${page.notes || ''}`, notesW - 8);
+    const maxLines = Math.min(splitNotes.length, 5);
+    pdf.text(splitNotes.slice(0, maxLines), notesX + 4, curNoteY);
+    curNoteY += maxLines * 3.5 + 2;
+  }
+
+  if (page.imageUrl && settings.showPageImage !== false) {
+    try {
+      const maxImgW = Math.min(notesW - 8, 60);
+      const maxImgH = Math.min(30, Math.max(12, (notesY + notesH) - curNoteY - 22));
+      if (maxImgH > 10) {
+        pdf.addImage(page.imageUrl, 'JPEG', notesX + (notesW - maxImgW) / 2, curNoteY, maxImgW, maxImgH);
+        curNoteY += maxImgH + 3;
+      }
+    } catch {
+      // Fallback gracefully if image format fails in jsPDF
+    }
+  }
+
+  // Ruled lines for manual handwriting notes
+  curNoteY += 2;
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(6.5);
+  pdf.setTextColor(100, 116, 139);
+  pdf.text('Manual Handwriting & Review Notes:', notesX + 4, curNoteY);
+  curNoteY += 3;
+
+  pdf.setDrawColor(226, 232, 240);
+  const remainingH = (notesY + notesH) - curNoteY - 3;
+  const lineSpacing = 5.5;
+  const numLines = Math.max(2, Math.floor(remainingH / lineSpacing));
+
+  for (let l = 0; l < numLines; l++) {
+    const lineY = curNoteY + (l + 1) * (remainingH / (numLines + 0.5));
+    if (lineY < notesY + notesH - 2) {
+      pdf.setLineDashPattern([1, 1], 0);
+      pdf.line(notesX + 4, lineY, notesX + notesW - 4, lineY);
+    }
+  }
+  pdf.setLineDashPattern([], 0);
+}
+
 // Export multi-page PDF with print settings
 export async function exportMultiPagePdf(
   project: FlowchartProject,
@@ -1434,54 +1665,20 @@ export async function exportMultiPagePdf(
       currentY += 6;
     }
 
-    // Available space for diagram
     const footerHeight = settings.showHeaderFooter ? 12 : 0;
-    const hasDesc = Boolean(page.description && page.description.trim());
-    const hasPageNotes = Boolean(settings.showNotes !== false && page.notes && page.notes.trim());
-    const notesHeightEstimate = (hasDesc ? 18 : 0) + (hasPageNotes ? 18 : 0);
-
-    const availWidth = pageWidth - margin * 2;
-    const availHeight = pageHeight - currentY - margin - footerHeight - notesHeightEstimate;
-
-    const imgAspect = width / height;
-    let renderW = availWidth;
-    let renderH = availWidth / imgAspect;
-
-    if (renderH > availHeight) {
-      renderH = availHeight;
-      renderW = availHeight * imgAspect;
-    }
-
-    const posX = margin + (availWidth - renderW) / 2;
-    const posY = currentY + (availHeight - renderH) / 2;
-
-    if (settings.showBorders) {
-      pdf.setDrawColor(203, 213, 225);
-      pdf.rect(posX - 2, posY - 2, renderW + 4, renderH + 4);
-    }
-
-    pdf.addImage(imgData, 'JPEG', posX, posY, renderW, renderH);
-
-    // Description text if present
-    let textCursorY = posY + renderH + 7;
-    if (hasDesc && settings.descPosition !== 'appendix') {
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(settings.descFontSize * 0.72);
-      pdf.setTextColor(30, 41, 59);
-
-      const splitText = pdf.splitTextToSize(page.description || '', availWidth);
-      pdf.text(splitText, margin, textCursorY);
-      textCursorY += splitText.length * 4.5 + 4;
-    }
-
-    // Key Notes text if present
-    if (hasPageNotes && settings.descPosition !== 'appendix') {
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(Math.max(7.5, settings.descFontSize * 0.65));
-      pdf.setTextColor(180, 83, 9);
-      const splitNotes = pdf.splitTextToSize(`Notes: ${page.notes || ''}`, availWidth);
-      pdf.text(splitNotes, margin, textCursorY);
-    }
+    render5050PagePdf(
+      pdf,
+      page,
+      settings,
+      imgData,
+      width,
+      height,
+      currentY,
+      pageWidth,
+      pageHeight,
+      margin,
+      footerHeight
+    );
 
     // Footer
     if (settings.showHeaderFooter) {
@@ -1807,16 +2004,58 @@ export function generateAggregatePrintReportHtml(
               : ''
           }
 
-          <div class="sheet-body">
-            ${settings.descPosition === 'above' ? `${descBoxHtml}${notesBoxHtml}` : ''}
-
-            <div class="diagram-wrapper ${settings.showBorders ? borderClass : ''} ${bgClass}">
+          <div class="sheet-body split-${settings.splitPosition || 'shapes-top'}">
+            <div class="diagram-half diagram-wrapper ${settings.showBorders ? borderClass : ''} ${bgClass}">
               <div class="diagram-inner" style="${scaleStyle}">
                 ${svg}
               </div>
             </div>
 
-            ${settings.descPosition === 'below' ? `${descBoxHtml}${notesBoxHtml}` : ''}
+            <div class="notes-half">
+              <div class="notes-box-header">
+                <div class="notes-tag" style="color: ${accentColor}; font-weight: 700; font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                  <span>💡 نکات و ملاحظات صفحه</span>
+                  <span style="font-size: 9.5px; opacity: 0.75; font-family: monospace;">(${proj.title} • ${page.name})</span>
+                </div>
+                <span style="font-size: 10px; color: #64748b; font-family: monospace; font-weight: 600;">[بخش ۵۰٪]</span>
+              </div>
+
+              ${page.imageUrl && settings.showPageImage !== false ? `
+                <div class="notes-attached-image" style="margin-bottom: 8px; text-align: center;">
+                  <img src="${page.imageUrl}" alt="تصویر پیوست صفحه" style="max-height: 130px; max-width: 100%; object-fit: contain; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); background: #ffffff;" />
+                </div>
+              ` : ''}
+
+              ${(hasDescription || hasNotes) ? `
+                <div class="notes-content" style="font-size: ${settings.descFontSize}px; font-weight: ${settings.fontWeight}; text-align: ${settings.textAlign}; margin-bottom: 6px;">
+                  ${descText ? `<div style="margin-bottom: 4px; font-weight: 600; color: #334155;">${descText.split('\n').map(l => `<p>${l}</p>`).join('')}</div>` : ''}
+                  ${notesText ? `<div style="color: #92400e;">${notesText.split('\n').map(l => {
+                    const trimmed = l.trim();
+                    if (!trimmed) return '<br/>';
+                    const bullet = trimmed.startsWith('•') || trimmed.startsWith('-') ? '' : '• ';
+                    return `<p>${bullet}${trimmed}</p>`;
+                  }).join('')}</div>` : ''}
+                </div>
+              ` : ''}
+
+              <div class="manual-notes-area">
+                <div class="manual-notes-title">
+                  <span>📝 محل درج نکات و یادداشت‌های دستی (Manual Notes):</span>
+                  <span style="font-size: 9px; opacity: 0.7; font-style: italic;">برای یادداشت‌های تکمیلی و بازبینی</span>
+                </div>
+                <div class="notes-ruled-lines">
+                  <div class="ruled-line"></div>
+                  <div class="ruled-line"></div>
+                  <div class="ruled-line"></div>
+                  <div class="ruled-line"></div>
+                  ${!(hasDescription || hasNotes) ? `
+                  <div class="ruled-line"></div>
+                  <div class="ruled-line"></div>
+                  <div class="ruled-line"></div>
+                  ` : ''}
+                </div>
+              </div>
+            </div>
           </div>
 
           ${
@@ -2103,83 +2342,163 @@ export function generateAggregatePrintReportHtml(
     .sheet-body {
       flex: 1;
       display: flex;
-      flex-direction: column;
-      justify-content: center;
+      width: 100%;
       min-height: 0;
+      position: relative;
+      z-index: 2;
+      gap: 14px;
+      box-sizing: border-box;
+      overflow: hidden;
     }
 
-    .page-description-box {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-right: 4px solid #2563eb;
+    .sheet-body.split-shapes-top {
+      flex-direction: column;
+    }
+    .sheet-body.split-shapes-top .diagram-half {
+      flex: 1 1 50%;
+      height: calc(50% - 7px);
+      max-height: calc(50% - 7px);
+      width: 100%;
+    }
+    .sheet-body.split-shapes-top .notes-half {
+      flex: 1 1 50%;
+      height: calc(50% - 7px);
+      max-height: calc(50% - 7px);
+      width: 100%;
+    }
+
+    .sheet-body.split-shapes-bottom {
+      flex-direction: column-reverse;
+    }
+    .sheet-body.split-shapes-bottom .diagram-half {
+      flex: 1 1 50%;
+      height: calc(50% - 7px);
+      max-height: calc(50% - 7px);
+      width: 100%;
+    }
+    .sheet-body.split-shapes-bottom .notes-half {
+      flex: 1 1 50%;
+      height: calc(50% - 7px);
+      max-height: calc(50% - 7px);
+      width: 100%;
+    }
+
+    .sheet-body.split-shapes-right {
+      flex-direction: row-reverse;
+    }
+    .sheet-body.split-shapes-right .diagram-half {
+      flex: 1 1 50%;
+      width: calc(50% - 7px);
+      max-width: calc(50% - 7px);
+      height: 100%;
+    }
+    .sheet-body.split-shapes-right .notes-half {
+      flex: 1 1 50%;
+      width: calc(50% - 7px);
+      max-width: calc(50% - 7px);
+      height: 100%;
+    }
+
+    .sheet-body.split-shapes-left {
+      flex-direction: row;
+    }
+    .sheet-body.split-shapes-left .diagram-half {
+      flex: 1 1 50%;
+      width: calc(50% - 7px);
+      max-width: calc(50% - 7px);
+      height: 100%;
+    }
+    .sheet-body.split-shapes-left .notes-half {
+      flex: 1 1 50%;
+      width: calc(50% - 7px);
+      max-width: calc(50% - 7px);
+      height: 100%;
+    }
+
+    .diagram-half {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      border-radius: 8px;
+      padding: 10px;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    .diagram-inner {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .diagram-half svg {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+    }
+
+    .notes-half {
+      display: flex;
+      flex-direction: column;
+      background: #fafbfe;
+      border: 1.5px solid #cbd5e1;
+      border-right: 4px solid ${accentColor};
       border-radius: 8px;
       padding: 12px 16px;
-      margin: 12px 0;
+      box-sizing: border-box;
+      overflow: hidden;
+      position: relative;
     }
 
-    .desc-header {
+    .notes-box-header {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 6px;
-      font-size: 11px;
-    }
-
-    .desc-tag {
-      font-weight: 700;
-    }
-
-    .desc-subtitle {
-      color: #64748b;
-    }
-
-    .desc-content {
-      color: #334155;
-      line-height: 1.65;
-    }
-
-    .desc-content p {
-      margin-bottom: 4px;
-    }
-
-    .page-notes-box {
-      background: #fffbeb;
-      border: 1px solid #fef3c7;
-      border-right: 4px solid #d97706;
-      border-radius: 8px;
-      padding: 10px 14px;
-      margin: 8px 0;
-    }
-
-    .notes-header {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 4px;
-      font-size: 10.5px;
-    }
-
-    .notes-tag {
-      font-weight: 700;
-      color: #92400e;
-    }
-
-    .notes-subtitle {
-      color: #b45309;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #e2e8f0;
+      flex-shrink: 0;
     }
 
     .notes-content {
-      color: #78350f;
-      line-height: 1.55;
+      line-height: 1.6;
     }
 
-    .diagram-wrapper {
+    .manual-notes-area {
       flex: 1;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      min-height: 380px;
-      border-radius: 8px;
-      padding: 16px;
+      flex-direction: column;
+      justify-content: space-evenly;
+      min-height: 60px;
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    .manual-notes-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #64748b;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .notes-ruled-lines {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-evenly;
+    }
+
+    .ruled-line {
+      height: 1px;
+      border-bottom: 1px dashed #cbd5e1;
+      margin: 4px 0;
     }
 
     .border-thin { border: 1px solid #cbd5e1; }
@@ -2194,20 +2513,6 @@ export function generateAggregatePrintReportHtml(
       background-color: #ffffff;
       background-image: radial-gradient(#cbd5e1 0.75px, transparent 0.75px);
       background-size: 16px 16px;
-    }
-
-    .diagram-inner {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .diagram-inner svg {
-      max-width: 100%;
-      max-height: 100%;
-      display: block;
     }
 
     .sheet-footer {
@@ -2560,51 +2865,19 @@ export async function exportAggregateMultiPagePdf(
       }
 
       const footerHeight = settings.showHeaderFooter ? 12 : 0;
-      const hasDesc = Boolean(page.description && page.description.trim());
-      const hasPageNotes = Boolean(settings.showNotes !== false && page.notes && page.notes.trim());
-      const notesHeightEstimate = (hasDesc ? 18 : 0) + (hasPageNotes ? 18 : 0);
-
-      const availWidth = pageWidth - margin * 2;
-      const availHeight = pageHeight - currentY - margin - footerHeight - notesHeightEstimate;
-
-      const imgAspect = width / height;
-      let renderW = availWidth;
-      let renderH = availWidth / imgAspect;
-
-      if (renderH > availHeight) {
-        renderH = availHeight;
-        renderW = availHeight * imgAspect;
-      }
-
-      const posX = margin + (availWidth - renderW) / 2;
-      const posY = currentY + (availHeight - renderH) / 2;
-
-      if (settings.showBorders) {
-        pdf.setDrawColor(203, 213, 225);
-        pdf.rect(posX - 2, posY - 2, renderW + 4, renderH + 4);
-      }
-
-      pdf.addImage(imgData, 'JPEG', posX, posY, renderW, renderH);
-
-      // Description text
-      let textCursorY = posY + renderH + 7;
-      if (hasDesc && settings.descPosition !== 'appendix') {
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(settings.descFontSize * 0.72);
-        pdf.setTextColor(30, 41, 59);
-        const splitText = pdf.splitTextToSize(page.description || '', availWidth);
-        pdf.text(splitText, margin, textCursorY);
-        textCursorY += splitText.length * 4.5 + 4;
-      }
-
-      // Notes
-      if (hasPageNotes && settings.descPosition !== 'appendix') {
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(Math.max(7.5, settings.descFontSize * 0.65));
-        pdf.setTextColor(180, 83, 9);
-        const splitNotes = pdf.splitTextToSize(`Notes: ${page.notes || ''}`, availWidth);
-        pdf.text(splitNotes, margin, textCursorY);
-      }
+      render5050PagePdf(
+        pdf,
+        page,
+        settings,
+        imgData,
+        width,
+        height,
+        currentY,
+        pageWidth,
+        pageHeight,
+        margin,
+        footerHeight
+      );
 
       // Footer
       if (settings.showHeaderFooter) {

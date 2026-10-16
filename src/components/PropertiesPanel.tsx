@@ -21,6 +21,9 @@ import {
   Italic,
   Settings,
   Minimize2,
+  Image as ImageIcon,
+  Upload,
+  Clipboard,
 } from 'lucide-react';
 import { FONT_OPTIONS, COLOR_SWATCHES } from '../utils/defaultSettings';
 import { trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
@@ -163,6 +166,171 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <span>طول متن: {(selectedNode.label || '').length} کاراکتر</span>
               <span className="text-emerald-600 dark:text-emerald-400">پاکسازی خودکار فاصله‌ها فعال است</span>
             </div>
+          </div>
+
+          {/* ================= IMAGE SETTINGS (جایگذاری و تنظیم عکس در شکل) ================= */}
+          <div className="space-y-2 pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>جایگذاری عکس و آیکون در شکل</span>
+              </label>
+              {selectedNode.imageUrl && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateNode({ ...selectedNode, imageUrl: undefined })}
+                  className="text-[10px] text-red-500 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>حذف عکس</span>
+                </button>
+              )}
+            </div>
+
+            {/* Quick Actions: Paste from Clipboard & Upload */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    if (navigator.clipboard?.read) {
+                      const clipboardItems = await navigator.clipboard.read();
+                      for (const item of clipboardItems) {
+                        const imgType = item.types.find((t) => t.startsWith('image/'));
+                        if (imgType) {
+                          const blob = await item.getType(imgType);
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const dataUrl = ev.target?.result as string;
+                            if (dataUrl) {
+                              onUpdateNode({
+                                ...selectedNode,
+                                imageUrl: dataUrl,
+                                width: Math.max(selectedNode.width, 180),
+                                height: Math.max(selectedNode.height, 130),
+                                imagePosition: selectedNode.imagePosition || 'top',
+                              });
+                            }
+                          };
+                          reader.readAsDataURL(blob);
+                          return;
+                        }
+                      }
+                    }
+                    alert('لطفاً ابتدا با کلیدهای Win+Shift+S اسکرین‌شات گرفته یا عکسی را کپی کنید، سپس کلید ترکیبی Ctrl+V را در صفحه فشار دهید.');
+                  } catch {
+                    alert('برای جایگذاری سریع عکس کافیست در هر کجای صفحه کلید ترکیبی Ctrl+V را فشار دهید.');
+                  }
+                }}
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl border border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 hover:bg-purple-100/70 text-purple-700 dark:text-purple-300 text-[11px] font-semibold transition-all cursor-pointer shadow-2xs"
+                title="جایگذاری عکس کپی‌شده یا اسکرین‌شات از حافظه موقت (Ctrl+V)"
+              >
+                <Clipboard className="w-3.5 h-3.5" />
+                <span>پیست از کلیپ‌بورد</span>
+              </button>
+
+              <label className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl border border-dashed hover:border-purple-500 hover:bg-purple-50/20 cursor-pointer transition-all text-[11px] font-medium text-purple-600 dark:text-purple-400">
+                <Upload className="w-3.5 h-3.5" />
+                <span>{selectedNode.imageUrl ? 'تغییر فایل...' : 'آپلود فایل...'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const dataUrl = ev.target?.result as string;
+                        if (dataUrl) {
+                          onUpdateNode({
+                            ...selectedNode,
+                            imageUrl: dataUrl,
+                            width: Math.max(selectedNode.width, 180),
+                            height: Math.max(selectedNode.height, 130),
+                            imagePosition: selectedNode.imagePosition || 'top',
+                          });
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            <div className="text-[10px] opacity-60 leading-tight">
+              💡 برای دستوراتی مانند «گزینه‌ای که فلان شکل است را بزن»، تصویر دکمه را با <strong>Ctrl+V</strong> پیست کنید.
+            </div>
+
+            {selectedNode.imageUrl && (
+              <div className="space-y-2 pt-1 border-t" style={{ borderColor: theme.ui.border }}>
+                {/* Image Position in Shape */}
+                <div className="space-y-1">
+                  <span className="text-[10px] opacity-70 block font-semibold">موقعیت قرارگیری در کادر:</span>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'top', label: '⬆️ بالا' },
+                      { id: 'inline', label: '⬅️ کنار متن (آیکون)' },
+                      { id: 'cover', label: '🔲 کاور پس‌زمینه' },
+                    ].map((pos) => (
+                      <button
+                        key={pos.id}
+                        type="button"
+                        onClick={() => onUpdateNode({ ...selectedNode, imagePosition: pos.id as any })}
+                        className={`py-1 rounded text-[10px] border transition-colors ${
+                          (selectedNode.imagePosition || 'top') === pos.id
+                            ? 'bg-purple-600 text-white font-bold'
+                            : 'opacity-70 hover:opacity-100'
+                        }`}
+                        style={{ borderColor: theme.ui.border }}
+                      >
+                        {pos.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Image Fit Mode */}
+                <div className="flex items-center justify-between text-[11px] pt-1">
+                  <span className="opacity-70">تناسب ابعاد عکس:</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onUpdateNode({ ...selectedNode, imageFit: 'contain' })}
+                      className={`px-2 py-0.5 rounded text-[10px] border ${
+                        selectedNode.imageFit !== 'cover'
+                          ? 'bg-purple-600 text-white font-bold'
+                          : 'opacity-70 hover:opacity-100'
+                      }`}
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      متناسب (Fit)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateNode({ ...selectedNode, imageFit: 'cover' })}
+                      className={`px-2 py-0.5 rounded text-[10px] border ${
+                        selectedNode.imageFit === 'cover'
+                          ? 'bg-purple-600 text-white font-bold'
+                          : 'opacity-70 hover:opacity-100'
+                      }`}
+                      style={{ borderColor: theme.ui.border }}
+                    >
+                      پوشش کامل (Cover)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-1 rounded-lg border bg-white dark:bg-slate-900/50" style={{ borderColor: theme.ui.border }}>
+                  <img
+                    src={selectedNode.imageUrl}
+                    alt="پیش‌نمایش تصویر گره"
+                    className="h-20 w-full object-contain rounded"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ================= FONT & TYPOGRAPHY ================= */}
@@ -568,19 +736,49 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
             </div>
 
+            {/* Proportional Scaling Buttons */}
+            <div className="flex items-center justify-between gap-1 pt-1">
+              <span className="text-[10px] opacity-70">مقیاس سریع:</span>
+              <div className="flex gap-1">
+                {[
+                  { label: '-20%', factor: 0.8 },
+                  { label: '+20%', factor: 1.2 },
+                  { label: '۱.۵×', factor: 1.5 },
+                  { label: '۲×', factor: 2 },
+                ].map((scale) => (
+                  <button
+                    key={scale.label}
+                    type="button"
+                    onClick={() =>
+                      onUpdateNode({
+                        ...selectedNode,
+                        width: Math.max(50, Math.round(selectedNode.width * scale.factor)),
+                        height: Math.max(30, Math.round(selectedNode.height * scale.factor)),
+                      })
+                    }
+                    className="px-2 py-0.5 rounded text-[10px] border font-mono hover:opacity-85"
+                    style={{ borderColor: theme.ui.border }}
+                  >
+                    {scale.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Quick Size Presets */}
-            <div className="grid grid-cols-4 gap-1 pt-1">
+            <div className="grid grid-cols-5 gap-1 pt-1">
               {[
                 { label: 'فشرده', w: 120, h: 55 },
                 { label: 'عادی', w: 160, h: 75 },
-                { label: 'عریض', w: 210, h: 80 },
-                { label: 'بزرگ', w: 240, h: 110 },
+                { label: 'مربع', w: 130, h: 130 },
+                { label: 'عکس متوسط', w: 180, h: 130 },
+                { label: 'عکس بزرگ', w: 260, h: 180 },
               ].map((sz) => (
                 <button
                   key={sz.label}
                   type="button"
                   onClick={() => onUpdateNode({ ...selectedNode, width: sz.w, height: sz.h })}
-                  className="py-1 rounded text-[10px] border hover:opacity-85 text-center font-medium"
+                  className="py-1 rounded text-[9.5px] border hover:opacity-85 text-center font-medium truncate"
                   style={{ borderColor: theme.ui.border }}
                 >
                   {sz.label}

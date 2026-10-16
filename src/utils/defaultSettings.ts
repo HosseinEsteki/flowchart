@@ -10,6 +10,7 @@ export const DEFAULT_SHAPE_TYPE_COLORS: Record<FlowchartNodeType, ShapeTypeColor
   database: { fill: '#FFF1F2', stroke: '#F43F5E', textColor: '#881337' },
   connector: { fill: '#F1F5F9', stroke: '#64748B', textColor: '#1E293B' },
   note: { fill: '#FEFCE8', stroke: '#EAB308', textColor: '#713F12' },
+  image: { fill: '#F8FAFC', stroke: '#CBD5E1', textColor: '#0F172A' },
 };
 
 export const FONT_OPTIONS = [

@@ -372,11 +372,13 @@ export default function App() {
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      ws.onerror = (err) => {
-        console.warn('Real-time connection note (running local):', err);
+      ws.onerror = () => {
+        // Fallback to local offline mode smoothly
       };
-    } catch (e) {
-      console.warn('WebSocket init note:', e);
+      ws.onclose = () => {
+        // Fallback to local offline mode smoothly
+      };
+    } catch {
       return;
     }
 
@@ -768,6 +770,22 @@ export default function App() {
     });
   };
 
+  const handleUpdatePageImage = (pageId: string, imageUrl: string) => {
+    setProject((prev) => {
+      const curPages = prev.pages || [];
+      const updatedPages = curPages.map((pg) =>
+        pg.id === pageId ? { ...pg, imageUrl } : pg
+      );
+      const updated: FlowchartProject = {
+        ...prev,
+        pages: updatedPages,
+        updatedAt: Date.now(),
+      };
+      triggerCloudSave(updated);
+      return updated;
+    });
+  };
+
   // --- Multi-Project Handlers ---
   const handleSelectProject = (projectId: string) => {
     fetch(`/api/projects/${projectId}`)
@@ -953,11 +971,12 @@ export default function App() {
       database: { width: 130, height: 95 },
       connector: { width: 60, height: 60 },
       note: { width: 160, height: 100 },
+      image: { width: 180, height: 130 },
     };
 
     const size = baseSizes[type] || { width: 150, height: 75 };
     const paletteKey = type === 'input-output' ? 'inputOutput' : type;
-    const pColor = currentTheme.palette[paletteKey] || currentTheme.palette.process;
+    const pColor = (currentTheme.palette as any)[paletteKey] || currentTheme.palette.process;
     const customTypeColor = siteDefaultSettings.shapeTypeColors?.[type];
 
     const defaultLabels: Record<FlowchartNodeType, string> = {
@@ -970,6 +989,7 @@ export default function App() {
       database: 'پایگاه داده',
       connector: 'A',
       note: 'یادداشت توضیحی...',
+      image: 'تصویر و دیاگرام',
     };
 
     const newNode: FlowchartNode = {
@@ -980,8 +1000,8 @@ export default function App() {
       width: size.width,
       height: size.height,
       label: defaultLabels[type] || 'گره جدید',
-      fill: customTypeColor?.fill || pColor.fill,
-      stroke: customTypeColor?.stroke || pColor.stroke,
+      fill: customTypeColor?.fill || (type === 'image' ? '#f8fafc' : pColor.fill),
+      stroke: customTypeColor?.stroke || (type === 'image' ? '#cbd5e1' : pColor.stroke),
       strokeWidth: siteDefaultSettings.shapeStrokeWidth || 2,
       strokeStyle: siteDefaultSettings.shapeStrokeStyle || 'solid',
       textColor: customTypeColor?.textColor || pColor.text,
@@ -1001,6 +1021,34 @@ export default function App() {
     updateProjectData(updatedNodes, project.edges);
     setSelectedNodeId(newNode.id);
     setSelectedEdgeId(null);
+
+    // If adding an image node, immediately prompt for file upload
+    if (type === 'image') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e: any) => {
+        const file = e.target?.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const dataUrl = ev.target?.result as string;
+            if (dataUrl) {
+              setProject((prev) => {
+                const nextNodes = prev.nodes.map((n) =>
+                  n.id === newNode.id ? { ...n, imageUrl: dataUrl } : n
+                );
+                const updated = syncProjectWithPages({ ...prev, nodes: nextNodes });
+                triggerCloudSave(updated);
+                return updated;
+              });
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    }
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'node_update', node: newNode }));
@@ -1269,8 +1317,104 @@ export default function App() {
     }
   };
 
-  // Keyboard Shortcuts handler
+  // Paste image directly from clipboard (into selected shape or create new shape)
+  const handlePasteImageData = useCallback(
+    (dataUrl: string) => {
+      pushUndo();
+      if (selectedNodeId) {
+        // Attach image to currently selected node
+        const updatedNodes = project.nodes.map((n) => {
+          if (n.id === selectedNodeId) {
+            return {
+              ...n,
+              imageUrl: dataUrl,
+              width: Math.max(n.width, 180),
+              height: Math.max(n.height, 130),
+              imagePosition: n.imagePosition || 'top',
+              imageFit: n.imageFit || 'contain',
+            };
+          }
+          return n;
+        });
+        updateProjectData(updatedNodes, project.edges);
+      } else {
+        // Create a new step node with the pasted image & instruction label
+        const canvasCenterX = (-pan.x + (window.innerWidth - 300) / 2) / zoom;
+        const canvasCenterY = (-pan.y + (window.innerHeight - 100) / 2) / zoom;
+        const newNode: FlowchartNode = {
+          id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          type: 'process',
+          x: Math.round(canvasCenterX - 95),
+          y: Math.round(canvasCenterY - 70),
+          width: 190,
+          height: 140,
+          label: 'گزینه مشخص شده در تصویر را بزنید',
+          fill: '#FFFFFF',
+          stroke: '#3B82F6',
+          strokeWidth: 2,
+          strokeStyle: 'solid',
+          textColor: '#0F172A',
+          fontSize: 13,
+          fontWeight: 'normal',
+          textAlign: 'center',
+          fontFamily: 'Vazirmatn, sans-serif',
+          borderRadius: 8,
+          imageUrl: dataUrl,
+          imagePosition: 'top',
+          imageFit: 'contain',
+        };
+        updateProjectData([...project.nodes, newNode], project.edges);
+        setSelectedNodeId(newNode.id);
+        setSelectedEdgeId(null);
+      }
+    },
+    [project.nodes, project.edges, selectedNodeId, pan.x, pan.y, zoom, pushUndo, updateProjectData]
+  );
+
+  // Keyboard Shortcuts & Global Paste handler
   useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement;
+      const isInput =
+        activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.indexOf('image') !== -1) {
+            e.preventDefault();
+            const blob = item.getAsFile();
+            if (blob) {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                const dataUrl = ev.target?.result as string;
+                if (dataUrl) {
+                  handlePasteImageData(dataUrl);
+                }
+              };
+              reader.readAsDataURL(blob);
+              return;
+            }
+          }
+        }
+      }
+
+      // If not typing in input, also check if plain text is an image URL
+      if (!isInput) {
+        const text = e.clipboardData?.getData('text') || '';
+        const trimmed = text.trim();
+        if (
+          trimmed.startsWith('data:image/') ||
+          /^https?:\/\/.*\.(png|jpg|jpeg|svg|webp|gif)(\?.*)?$/i.test(trimmed)
+        ) {
+          e.preventDefault();
+          handlePasteImageData(trimmed);
+        }
+      }
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is currently typing in input or textarea
       const target = e.target as HTMLElement;
@@ -1331,9 +1475,26 @@ export default function App() {
       }
     };
 
+    window.addEventListener('paste', handlePaste);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    handlePasteImageData,
+    selectedNodeId,
+    selectedEdgeId,
+    project.nodes,
+    project.edges,
+    handleUndo,
+    handleRedo,
+    handleDeleteNode,
+    handleDeleteEdge,
+    handleDuplicateNode,
+    pushUndo,
+    updateProjectData,
+  ]);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId) || null;
   const selectedEdge = project.edges.find((e) => e.id === selectedEdgeId) || null;
@@ -1435,6 +1596,7 @@ export default function App() {
           onSelectPage={handleSelectPage}
           onUpdatePageDescription={handleUpdatePageDescription}
           onUpdatePageNotes={handleUpdatePageNotes}
+          onUpdatePageImage={handleUpdatePageImage}
           onOpenPrint={() => handleOpenPrint('single')}
           projectTitle={project.title}
           projectDescription={project.description || ''}

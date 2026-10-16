@@ -25,6 +25,9 @@ import {
   Settings,
   FolderKanban,
   Lightbulb,
+  Image as ImageIcon,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 import { FlowchartNodeType, FlowchartVersion, Collaborator, ChatMessage, FlowchartPage, SiteDefaultSettings } from '../types/flowchart';
 import { ColorTheme } from '../constants/themes';
@@ -55,6 +58,7 @@ interface SidebarProps {
   onSelectPage?: (pageId: string) => void;
   onUpdatePageDescription?: (pageId: string, description: string) => void;
   onUpdatePageNotes?: (pageId: string, notes: string) => void;
+  onUpdatePageImage?: (pageId: string, imageUrl: string) => void;
   onOpenPrint?: () => void;
   projectTitle?: string;
   projectDescription?: string;
@@ -88,6 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectPage,
   onUpdatePageDescription,
   onUpdatePageNotes,
+  onUpdatePageImage,
   onOpenPrint,
   projectTitle,
   projectDescription,
@@ -126,14 +131,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const activeTab = activeTabProp !== undefined ? activeTabProp : internalTab;
   const isCollapsed = isCollapsedProp !== undefined ? isCollapsedProp : internalCollapsed;
 
-  // Active page description and key notes
+  // Active page description, key notes and attached image
   const [descDraft, setDescDraft] = useState(activePage?.description || '');
   const [notesDraft, setNotesDraft] = useState(activePage?.notes || '');
+  const [imageDraft, setImageDraft] = useState(activePage?.imageUrl || '');
 
   useEffect(() => {
     setDescDraft(activePage?.description || '');
     setNotesDraft(activePage?.notes || '');
-  }, [activePage?.id, activePage?.description, activePage?.notes]);
+    setImageDraft(activePage?.imageUrl || '');
+  }, [activePage?.id, activePage?.description, activePage?.notes, activePage?.imageUrl]);
 
   const handleDescChange = (text: string) => {
     setDescDraft(text);
@@ -147,6 +154,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (activePage && onUpdatePageNotes) {
       onUpdatePageNotes(activePage.id, text);
     }
+  };
+
+  const handleImageChange = (url: string) => {
+    setImageDraft(url);
+    if (activePage && onUpdatePageImage) {
+      onUpdatePageImage(activePage.id, url);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl) handleImageChange(dataUrl);
+    };
+    reader.readAsDataURL(file);
   };
 
   const appendDescSnippet = (snippet: string) => {
@@ -243,6 +268,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       desc: t.shapeNoteDesc,
       icon: <StickyNote className="w-4 h-4" />,
       colorKey: 'note',
+    },
+    {
+      type: 'image',
+      label: 'تصویر و عکس (Image)',
+      desc: 'جایگذاری عکس و نمودار تصویری',
+      icon: <ImageIcon className="w-4 h-4" />,
+      colorKey: 'process',
     },
   ];
 
@@ -653,6 +685,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                     />
                   </div>
+                </div>
+
+                {/* 3. SECTION: ATTACHED PAGE IMAGE (تصویر پیوست صفحه) */}
+                <div className="space-y-2 pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-purple-600 dark:text-purple-400">
+                      <ImageIcon className="w-4 h-4" />
+                      <span>تصویر و عکس پیوست صفحه</span>
+                    </div>
+                    {imageDraft && (
+                      <button
+                        type="button"
+                        onClick={() => handleImageChange('')}
+                        className="text-[10px] text-red-500 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>حذف عکس</span>
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] opacity-65 leading-relaxed">
+                    جایگذاری تصویر یا دیاگرام که در بخش ۵۰٪ نکات و صفحه پرینت چاپ می‌شود:
+                  </p>
+
+                  <label className="flex items-center justify-center gap-2 p-2 rounded-xl border border-dashed hover:border-purple-500 hover:bg-purple-50/20 cursor-pointer transition-all text-xs font-medium text-purple-600 dark:text-purple-400">
+                    <Upload className="w-4 h-4" />
+                    <span>{imageDraft ? 'تغییر تصویر پیوست...' : 'آپلود عکس از سیستم...'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {imageDraft && (
+                    <div className="relative rounded-lg overflow-hidden border p-1 bg-white dark:bg-slate-900/40" style={{ borderColor: theme.ui.border }}>
+                      <img
+                        src={imageDraft}
+                        alt="پیش‌نمایش تصویر صفحه"
+                        className="h-24 w-full object-contain rounded"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Auto-save & Print sync indicator */}

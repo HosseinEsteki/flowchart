@@ -10,6 +10,7 @@ import {
   PrintOrientation,
   PrintDescPosition,
   PrintTextAlign,
+  PrintSplitPosition,
 } from '../types/flowchart';
 import {
   DEFAULT_PRINT_SETTINGS,
@@ -49,6 +50,9 @@ import {
   Copy,
   Upload,
   Plus,
+  Columns,
+  Image as ImageIcon,
+  Trash2,
 } from 'lucide-react';
 
 interface PrintModalProps {
@@ -113,9 +117,10 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const [isHtmlCopied, setIsHtmlCopied] = useState(false);
   const [isSavedToProject, setIsSavedToProject] = useState(false);
 
-  // Active editable description and notes state (synced with current page)
+  // Active editable description, notes and image state (synced with current page)
   const [localPageDesc, setLocalPageDesc] = useState<string>('');
   const [localPageNotes, setLocalPageNotes] = useState<string>('');
+  const [localPageImage, setLocalPageImage] = useState<string>('');
 
   // Available flowchart pages
   const availablePages = useMemo<FlowchartPage[]>(() => {
@@ -131,6 +136,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             name: 'صفحه اصلی',
             description: '',
             notes: '',
+            imageUrl: '',
             nodes: project.nodes || [],
             edges: project.edges || [],
           },
@@ -141,19 +147,20 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const safePageIndex = Math.min(previewPageIndex, Math.max(0, availablePages.length - 1));
   const activePreviewPage = availablePages[safePageIndex] || availablePages[0];
 
-  // Sync local description and notes when switching pages
+  // Sync local description, notes and image when switching pages
   useEffect(() => {
     if (activePreviewPage) {
       setLocalPageDesc(activePreviewPage.description || '');
       setLocalPageNotes(activePreviewPage.notes || '');
+      setLocalPageImage(activePreviewPage.imageUrl || '');
     }
-  }, [activePreviewPage?.id, activePreviewPage?.description, activePreviewPage?.notes]);
+  }, [activePreviewPage?.id, activePreviewPage?.description, activePreviewPage?.notes, activePreviewPage?.imageUrl]);
 
   const handlePageDescChange = (val: string) => {
     setLocalPageDesc(val);
     if (onUpdateProject && activePreviewPage) {
       const updatedPages = (project.pages || []).map((p) =>
-        p.id === activePreviewPage.id ? { ...p, description: val, notes: localPageNotes } : p
+        p.id === activePreviewPage.id ? { ...p, description: val, notes: localPageNotes, imageUrl: localPageImage } : p
       );
       onUpdateProject({
         ...project,
@@ -166,13 +173,39 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     setLocalPageNotes(val);
     if (onUpdateProject && activePreviewPage) {
       const updatedPages = (project.pages || []).map((p) =>
-        p.id === activePreviewPage.id ? { ...p, description: localPageDesc, notes: val } : p
+        p.id === activePreviewPage.id ? { ...p, description: localPageDesc, notes: val, imageUrl: localPageImage } : p
       );
       onUpdateProject({
         ...project,
         pages: updatedPages,
       });
     }
+  };
+
+  const handlePageImageChange = (val: string) => {
+    setLocalPageImage(val);
+    if (onUpdateProject && activePreviewPage) {
+      const updatedPages = (project.pages || []).map((p) =>
+        p.id === activePreviewPage.id ? { ...p, description: localPageDesc, notes: localPageNotes, imageUrl: val } : p
+      );
+      onUpdateProject({
+        ...project,
+        pages: updatedPages,
+      });
+    }
+  };
+
+  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        handlePageImageChange(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Handle custom font file upload (.woff2, .woff, .ttf, .otf)
@@ -1141,6 +1174,53 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                     )}
                   </div>
 
+                  {/* 50/50 Split Position Selector (اصلاحیه مرکز صفحه ۵۰٪ اشکال و ۵۰٪ نکات) */}
+                  <div className="pt-3 border-t space-y-2.5" style={{ borderColor: theme.ui.border }}>
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold flex items-center gap-2 text-xs">
+                        <Columns className="w-4 h-4 text-blue-500" />
+                        <span>تقسیم ۵۰٪ مرکز صفحه (اشکال و نکات)</span>
+                      </label>
+                      <span className="text-[10px] text-blue-500 font-mono font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                        ۵۰٪ اشکال • ۵۰٪ نکات
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-70 leading-relaxed">
+                      مرکز صفحه بین اشکال و نکات به دو بخش مساوی (۵۰٪) تقسیم می‌شود. موقعیت دلخواه را انتخاب کنید:
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'shapes-top', name: 'اشکال بالا • نکات پایین', icon: '⬆️' },
+                        { id: 'shapes-bottom', name: 'اشکال پایین • نکات بالا', icon: '⬇️' },
+                        { id: 'shapes-right', name: 'اشکال راست • نکات چپ', icon: '➡️' },
+                        { id: 'shapes-left', name: 'اشکال چپ • نکات راست', icon: '⬅️' },
+                      ].map((pos) => {
+                        const isSelected = (settings.splitPosition || 'shapes-top') === pos.id;
+                        return (
+                          <button
+                            key={pos.id}
+                            type="button"
+                            onClick={() =>
+                              setSettings((s) => ({
+                                ...s,
+                                splitPosition: pos.id as PrintSplitPosition,
+                              }))
+                            }
+                            className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold ring-2 ring-blue-500/20'
+                                : 'opacity-75 hover:opacity-100 hover:border-slate-400'
+                            }`}
+                            style={{ borderColor: isSelected ? undefined : theme.ui.border }}
+                          >
+                            <span className="text-lg">{pos.icon}</span>
+                            <span className="text-[11px] leading-tight">{pos.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Description & Notes Block */}
                   <div className="pt-3 border-t space-y-2" style={{ borderColor: theme.ui.border }}>
                     <div className="flex items-center justify-between">
@@ -1148,21 +1228,6 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                         <FileText className="w-4 h-4 text-emerald-500" />
                         <span>شرح و یادداشت‌های فرآیند این صفحه</span>
                       </label>
-                      <select
-                        value={settings.descPosition}
-                        onChange={(e) =>
-                          setSettings((s) => ({
-                            ...s,
-                            descPosition: e.target.value as PrintDescPosition,
-                          }))
-                        }
-                        className="px-2 py-1 rounded-lg border text-[11px] bg-transparent outline-none"
-                        style={{ borderColor: theme.ui.border }}
-                      >
-                        <option value="below">زیر دیاگرام</option>
-                        <option value="above">بالای دیاگرام</option>
-                        <option value="appendix">صفحه ضمیمه مجزا</option>
-                      </select>
                     </div>
 
                     <textarea
@@ -1205,6 +1270,53 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                       className="w-full p-2.5 rounded-xl border text-xs bg-transparent focus:ring-1 focus:ring-amber-500 outline-none leading-relaxed resize-y"
                       style={{ borderColor: theme.ui.border }}
                     />
+                  </div>
+
+                  {/* Attached Page Image / جایگذاری عکس صفحه */}
+                  <div className="pt-3 border-t space-y-2.5" style={{ borderColor: theme.ui.border }}>
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4 text-purple-500" />
+                        <span>تصویر پیوست صفحه (جایگذاری عکس در بخش ۵۰٪)</span>
+                      </label>
+                      {localPageImage && (
+                        <button
+                          type="button"
+                          onClick={() => handlePageImageChange('')}
+                          className="text-[10px] text-red-500 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>حذف تصویر</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] opacity-65 leading-relaxed">
+                      تصویر، نمودار مرجع یا فرمولی را در این صفحه قرار دهید تا همراه با نکات چاپ شود:
+                    </p>
+
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border border-dashed hover:border-purple-500 hover:bg-purple-50/20 cursor-pointer transition-all text-xs font-medium text-purple-600 dark:text-purple-400">
+                        <Upload className="w-4 h-4" />
+                        <span>{localPageImage ? 'تغییر تصویر (آپلود عکس جدید)' : 'آپلود عکس از سیستم...'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageFileUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {localPageImage && (
+                      <div className="relative group rounded-lg overflow-hidden border p-1 bg-slate-50 dark:bg-slate-900/40" style={{ borderColor: theme.ui.border }}>
+                        <img
+                          src={localPageImage}
+                          alt="پیش‌نمایش تصویر صفحه"
+                          className="h-20 w-full object-contain rounded"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Cover Page Switch */}
@@ -1645,6 +1757,35 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                   <Layout className="w-3 h-3 text-blue-400" />
                   <span>{settings.orientation === 'landscape' ? 'افقی' : 'عمودی'}</span>
                 </button>
+
+                {/* Quick 50/50 Split Position Selector */}
+                <div className="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700 text-[10.5px]">
+                  <span className="text-[10px] text-slate-400 px-1 font-medium">مرکز ۵۰٪:</span>
+                  {[
+                    { id: 'shapes-top', icon: '⬆️', title: 'اشکال بالا (۵۰٪) • نکات پایین (۵۰٪)' },
+                    { id: 'shapes-bottom', icon: '⬇️', title: 'اشکال پایین (۵۰٪) • نکات بالا (۵۰٪)' },
+                    { id: 'shapes-right', icon: '➡️', title: 'اشکال راست (۵۰٪) • نکات چپ (۵۰٪)' },
+                    { id: 'shapes-left', icon: '⬅️', title: 'اشکال چپ (۵۰٪) • نکات راست (۵۰٪)' },
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      onClick={() =>
+                        setSettings((s) => ({
+                          ...s,
+                          splitPosition: btn.id as PrintSplitPosition,
+                        }))
+                      }
+                      className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                        (settings.splitPosition || 'shapes-top') === btn.id
+                          ? 'bg-blue-600 text-white font-bold ring-1 ring-blue-400'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title={btn.title}
+                    >
+                      {btn.icon}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1715,110 +1856,143 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                       </div>
                     )}
 
-                    {/* ================= SHEET BODY ================= */}
-                    <div className="flex-1 flex flex-col justify-center min-h-0 overflow-hidden relative z-10">
-                      {/* Description Above */}
-                      {settings.descPosition === 'above' && localPageDesc && (
+                    {/* ================= SHEET BODY (50% SHAPES / 50% NOTES SPLIT) ================= */}
+                    {(() => {
+                      const splitPos = settings.splitPosition || 'shapes-top';
+                      const isHorizontal = splitPos === 'shapes-right' || splitPos === 'shapes-left';
+
+                      const containerFlexClass =
+                        splitPos === 'shapes-top'
+                          ? 'flex-col'
+                          : splitPos === 'shapes-bottom'
+                          ? 'flex-col-reverse'
+                          : splitPos === 'shapes-right'
+                          ? 'flex-row-reverse'
+                          : 'flex-row';
+
+                      const halfStyle = isHorizontal
+                        ? { width: 'calc(50% - 6px)', height: '100%', maxHeight: '100%' }
+                        : { height: 'calc(50% - 6px)', maxHeight: 'calc(50% - 6px)', width: '100%' };
+
+                      return (
                         <div
-                          className="bg-slate-50/90 border border-slate-200 border-r-4 rounded p-2.5 text-slate-800 shrink-0"
-                          style={{
-                            borderRightColor: accentColor,
-                            marginBottom: Math.max(4, settings.spacing * 0.25),
-                            fontSize: Math.max(9, settings.descFontSize * 0.72),
-                            fontWeight: settings.fontWeight,
-                            textAlign: settings.textAlign,
-                          }}
+                          className={`flex-1 flex ${containerFlexClass} gap-3 min-h-0 overflow-hidden relative z-10 w-full`}
                         >
+                          {/* 50% DIAGRAM SVG CONTAINER */}
                           <div
-                            className="text-[9px] font-bold mb-0.5"
-                            style={{ color: accentColor }}
+                            style={halfStyle}
+                            className={`flex items-center justify-center overflow-hidden rounded-lg p-2 relative shrink-0 ${getDiagramBorderClass()} ${getDiagramBgClass()}`}
                           >
-                            مستندات و شرح فرآیند:
+                            <div
+                              className="w-full h-full flex items-center justify-center transition-transform [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:w-auto [&>svg]:h-auto [&>svg]:object-contain"
+                              style={{
+                                transform: `scale(${(settings.diagramScale || 100) / 100})`,
+                              }}
+                              dangerouslySetInnerHTML={{ __html: pageSvgResult.svg }}
+                            />
                           </div>
-                          <div className="line-clamp-3 leading-relaxed whitespace-pre-line">
-                            {localPageDesc}
-                          </div>
-                        </div>
-                      )}
 
-                      {/* Notes Above */}
-                      {settings.descPosition === 'above' && settings.showNotes !== false && localPageNotes && (
-                        <div
-                          className="bg-amber-50/90 border border-amber-200 border-r-4 rounded p-2 text-slate-800 shrink-0 mb-2"
-                          style={{
-                            borderRightColor: '#D97706',
-                            fontSize: Math.max(8.5, settings.descFontSize * 0.68),
-                            fontWeight: settings.fontWeight,
-                            textAlign: settings.textAlign,
-                          }}
-                        >
-                          <div className="text-[9px] font-bold text-amber-800 flex items-center gap-1 mb-0.5">
-                            <Lightbulb className="w-3 h-3 text-amber-600 inline shrink-0" />
-                            <span>نکات و ملاحظات کلیدی:</span>
-                          </div>
-                          <div className="line-clamp-2 leading-relaxed whitespace-pre-line text-amber-950">
-                            {localPageNotes}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* DIAGRAM SVG CONTAINER */}
-                      <div
-                        className={`flex-1 flex items-center justify-center overflow-hidden min-h-0 rounded p-1.5 ${getDiagramBorderClass()} ${getDiagramBgClass()}`}
-                      >
-                        <div
-                          className="w-full h-full flex items-center justify-center transition-transform [&>svg]:w-full [&>svg]:h-full [&>svg]:max-h-full [&>svg]:object-contain"
-                          style={{
-                            transform: `scale(${(settings.diagramScale || 100) / 100})`,
-                          }}
-                          dangerouslySetInnerHTML={{ __html: pageSvgResult.svg }}
-                        />
-                      </div>
-
-                      {/* Description Below */}
-                      {settings.descPosition === 'below' && localPageDesc && (
-                        <div
-                          className="bg-slate-50/90 border border-slate-200 border-r-4 rounded p-2 text-slate-800 shrink-0 mt-2"
-                          style={{
-                            borderRightColor: accentColor,
-                            fontSize: Math.max(9, settings.descFontSize * 0.72),
-                            fontWeight: settings.fontWeight,
-                            textAlign: settings.textAlign,
-                          }}
-                        >
+                          {/* 50% NOTES & CONSIDERATIONS CARD */}
                           <div
-                            className="text-[9px] font-bold mb-0.5"
-                            style={{ color: accentColor }}
+                            style={halfStyle}
+                            className="flex flex-col justify-between rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 overflow-hidden relative shadow-xs shrink-0"
                           >
-                            مستندات و شرح فرآیند:
-                          </div>
-                          <div className="line-clamp-2 leading-relaxed whitespace-pre-line">
-                            {localPageDesc}
-                          </div>
-                        </div>
-                      )}
+                            <div
+                              className="absolute top-0 right-0 bottom-0 w-1 rounded-r-lg"
+                              style={{ backgroundColor: accentColor }}
+                            />
 
-                      {/* Notes Below */}
-                      {settings.descPosition === 'below' && settings.showNotes !== false && localPageNotes && (
-                        <div
-                          className="bg-amber-50/90 border border-amber-200 border-r-4 rounded p-2 text-slate-800 shrink-0 mt-1.5"
-                          style={{
-                            borderRightColor: '#D97706',
-                            fontSize: Math.max(8.5, settings.descFontSize * 0.68),
-                            fontWeight: settings.fontWeight,
-                            textAlign: settings.textAlign,
-                          }}
-                        >
-                          <div className="text-[9px] font-bold text-amber-800 flex items-center gap-1 mb-0.5">
-                            <Lightbulb className="w-3 h-3 text-amber-600 inline shrink-0" />
-                            <span>نکات و ملاحظات کلیدی:</span>
-                          </div>
-                          <div className="line-clamp-2 leading-relaxed whitespace-pre-line text-amber-950">
-                            {localPageNotes}
+                            {/* Card Header Badge */}
+                            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80 shrink-0">
+                              <div
+                                className="flex items-center gap-1.5 text-[10.5px] font-bold"
+                                style={{ color: accentColor }}
+                              >
+                                <Lightbulb className="w-3.5 h-3.5 shrink-0" />
+                                <span>💡 نکات و ملاحظات صفحه</span>
+                                <span className="text-[9px] text-slate-400 font-mono font-normal">
+                                  ({activePreviewPage?.name})
+                                </span>
+                              </div>
+                              <span className="text-[9px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                [بخش ۵۰٪]
+                              </span>
+                            </div>
+
+                            {/* Card Body with description & notes */}
+                            <div className="flex-1 min-h-0 overflow-y-auto py-1.5 space-y-1.5 text-[9.5px]">
+                              {/* Attached Page Image */}
+                              {localPageImage && (
+                                <div className="relative group rounded border border-slate-200 bg-white p-1 text-center shrink-0">
+                                  <img
+                                    src={localPageImage}
+                                    alt="عکس پیوست صفحه"
+                                    className="max-h-24 max-w-full mx-auto object-contain rounded"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePageImageChange('')}
+                                    title="حذف تصویر"
+                                    className="absolute top-1 left-1 bg-red-500 text-white p-1 rounded-full opacity-80 hover:opacity-100 shadow transition-opacity cursor-pointer"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              )}
+
+                              {localPageDesc && (
+                                <div
+                                  className="text-slate-700 leading-relaxed bg-white/80 p-2 rounded border border-slate-200/80"
+                                  style={{
+                                    fontWeight: settings.fontWeight,
+                                    textAlign: settings.textAlign,
+                                  }}
+                                >
+                                  <strong className="block text-[9px] text-slate-800 mb-0.5">
+                                    مستندات و شرح فرآیند:
+                                  </strong>
+                                  <p className="line-clamp-3">{localPageDesc}</p>
+                                </div>
+                              )}
+
+                              {settings.showNotes !== false && localPageNotes && (
+                                <div
+                                  className="text-amber-900 leading-relaxed bg-amber-50/80 p-2 rounded border border-amber-200/80"
+                                  style={{
+                                    fontWeight: settings.fontWeight,
+                                    textAlign: settings.textAlign,
+                                  }}
+                                >
+                                  <strong className="block text-[9px] text-amber-800 mb-0.5">
+                                    نکات کلیدی این صفحه:
+                                  </strong>
+                                  <p className="line-clamp-3">{localPageNotes}</p>
+                                </div>
+                              )}
+
+                              {/* Ruled lines for manual handwriting notes */}
+                              <div className="mt-1 pt-1 border-t border-dashed border-slate-200 flex-1 flex flex-col justify-evenly min-h-[50px]">
+                                <div className="text-[8.5px] text-slate-500 font-medium flex items-center justify-between mb-1">
+                                  <span>📝 محل درج نکات و یادداشت‌های دستی (Manual Notes):</span>
+                                  <span className="text-[8px] opacity-70">خطوط راهنما برای نوشتن با قلم</span>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                  <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                  <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                  {!(localPageDesc || localPageNotes) && (
+                                    <>
+                                      <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                      <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()}
 
                     {/* ================= SHEET FOOTER ================= */}
                     {settings.showHeaderFooter && (

@@ -513,12 +513,16 @@ async function startServer() {
 
   if (isDev) {
     const { createServer: createViteServer } = await import('vite');
+    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        watch: {
-          ignored: ['**/data/**', '**/flowcharts.json'],
-        },
+        hmr: isHmrDisabled ? false : { server },
+        watch: isHmrDisabled
+          ? null
+          : {
+              ignored: ['**/data/**', '**/flowcharts.json'],
+            },
       },
       appType: 'spa',
     });

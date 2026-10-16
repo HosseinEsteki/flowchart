@@ -10,7 +10,22 @@ import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
 import { getPortPosition, calculateEdgePath, Point, getNodeBoundingBox } from '../utils/canvasMath';
 import { renderNodeShapePath, trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
-import { Trash2, Copy, Bold, Type, CornerDownRight, Compass, Sparkles } from 'lucide-react';
+import {
+  Trash2,
+  Copy,
+  Bold,
+  Type,
+  CornerDownRight,
+  Compass,
+  Sparkles,
+  Zap,
+  Plus,
+  ArrowLeft,
+  ArrowRight,
+  ArrowLeftRight,
+  Image as ImageIcon,
+  Upload,
+} from 'lucide-react';
 
 interface CanvasProps {
   theme: ColorTheme;
@@ -42,6 +57,7 @@ interface CanvasProps {
     strokeWidth: number;
     style: 'solid' | 'dashed';
   };
+  onPasteImage?: (dataUrl: string) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -69,6 +85,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   gridMode,
   snapToGrid,
   defaultConnectorSettings,
+  onPasteImage,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -80,8 +97,17 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
 
   // Resizing state
+  type ResizeHandleType = 'se' | 'sw' | 'ne' | 'nw' | 'e' | 's';
   const [resizingNodeId, setResizingNodeId] = useState<string | null>(null);
-  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [resizeStart, setResizeStart] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    nodeX: number;
+    nodeY: number;
+    handle: ResizeHandleType;
+  } | null>(null);
 
   // Connecting state
   const [connectingSource, setConnectingSource] = useState<{
@@ -97,6 +123,48 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Edge label editing
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
   const [editingEdgeLabel, setEditingEdgeLabel] = useState('');
+
+  // Waypoint dragging state for manual edge path adjustment
+  const [draggingWaypoint, setDraggingWaypoint] = useState<{
+    edgeId: string;
+    index: number;
+  } | null>(null);
+
+  const handleAddWaypointAt = (edge: FlowchartEdge, pt: Point, segmentIndex: number) => {
+    const sourceNode = nodes.find((n) => n.id === edge.sourceNodeId);
+    const targetNode = nodes.find((n) => n.id === edge.targetNodeId);
+    if (!sourceNode || !targetNode) return;
+
+    let currentWaypoints = edge.waypoints ? [...edge.waypoints] : [];
+    if (currentWaypoints.length === 0) {
+      const sPos = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+      const tPos = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
+      const calc = calculateEdgePath(sPos, tPos, edge.sourcePort, edge.targetPort, edge.lineType, {
+        sourceNode,
+        targetNode,
+        allNodes: nodes,
+        manualOffset: edge.manualOffset,
+      });
+      currentWaypoints = calc.points.slice(1, -1).map((p) => ({ ...p }));
+    }
+
+    currentWaypoints.splice(segmentIndex, 0, { x: Math.round(pt.x), y: Math.round(pt.y) });
+    onUpdateEdge({
+      ...edge,
+      waypoints: currentWaypoints,
+      routingMode: 'manual',
+    });
+  };
+
+  const handleRemoveWaypoint = (edge: FlowchartEdge, index: number) => {
+    if (!edge.waypoints || edge.waypoints.length === 0) return;
+    const updated = edge.waypoints.filter((_, i) => i !== index);
+    onUpdateEdge({
+      ...edge,
+      waypoints: updated.length > 0 ? updated : undefined,
+      routingMode: updated.length > 0 ? 'manual' : 'smart',
+    });
+  };
 
   // Show minimap & interactive navigation
   const [showMinimap, setShowMinimap] = useState(true);
@@ -227,14 +295,55 @@ export const Canvas: React.FC<CanvasProps> = ({
     // Handle Resizing
     if (resizingNodeId && resizeStart) {
       const node = nodes.find((n) => n.id === resizingNodeId);
-      if (node) {
+      if (node && !node.locked) {
         const dx = canvasPt.x - resizeStart.x;
         const dy = canvasPt.y - resizeStart.y;
-        const newW = Math.max(80, resizeStart.w + dx);
-        const newH = Math.max(40, resizeStart.h + dy);
+        let newW = resizeStart.w;
+        let newH = resizeStart.h;
+        let newX = resizeStart.nodeX;
+        let newY = resizeStart.nodeY;
+
+        switch (resizeStart.handle) {
+          case 'se':
+            newW = Math.max(60, resizeStart.w + dx);
+            newH = Math.max(30, resizeStart.h + dy);
+            break;
+          case 'sw':
+            newW = Math.max(60, resizeStart.w - dx);
+            newH = Math.max(30, resizeStart.h + dy);
+            newX = resizeStart.nodeX + (resizeStart.w - newW);
+            break;
+          case 'ne':
+            newW = Math.max(60, resizeStart.w + dx);
+            newH = Math.max(30, resizeStart.h - dy);
+            newY = resizeStart.nodeY + (resizeStart.h - newH);
+            break;
+          case 'nw':
+            newW = Math.max(60, resizeStart.w - dx);
+            newH = Math.max(30, resizeStart.h - dy);
+            newX = resizeStart.nodeX + (resizeStart.w - newW);
+            newY = resizeStart.nodeY + (resizeStart.h - newH);
+            break;
+          case 'e':
+            newW = Math.max(60, resizeStart.w + dx);
+            break;
+          case 's':
+            newH = Math.max(30, resizeStart.h + dy);
+            break;
+        }
+
+        if (snapToGrid) {
+          const gridSize = 15;
+          newW = Math.round(newW / gridSize) * gridSize;
+          newH = Math.round(newH / gridSize) * gridSize;
+          newX = Math.round(newX / gridSize) * gridSize;
+          newY = Math.round(newY / gridSize) * gridSize;
+        }
 
         onUpdateNode({
           ...node,
+          x: Math.round(newX),
+          y: Math.round(newY),
           width: Math.round(newW),
           height: Math.round(newH),
         });
@@ -617,51 +726,95 @@ export const Canvas: React.FC<CanvasProps> = ({
                     return null;
                   })}
 
-                  {/* Multi-line Text Label */}
+                  {/* Shape Image & Label Layout Rendering */}
                   {(() => {
                     const rawText = node.label || '';
                     const lines = rawText.split('\n');
                     const lineHeight = node.fontSize * 1.35;
-                    const startY =
-                      node.height / 2 -
-                      ((lines.length - 1) * lineHeight) / 2 +
-                      node.fontSize * 0.35;
+                    const hasImg = Boolean(node.imageUrl);
+                    const hasText = Boolean(rawText.trim());
+                    const pos = node.imagePosition || 'top';
+                    const isInline = pos === 'inline';
+                    const isCover = pos === 'cover';
+
+                    let imgX = 6;
+                    let imgY = 6;
+                    let imgW = Math.max(10, node.width - 12);
+                    let imgH = Math.max(10, node.height - 12);
 
                     const align = node.textAlign || 'center';
                     let textAnchor: 'start' | 'middle' | 'end' = 'middle';
                     let textX = node.width / 2;
+                    let startY =
+                      node.height / 2 -
+                      ((lines.length - 1) * lineHeight) / 2 +
+                      node.fontSize * 0.35;
 
-                    if (align === 'right') {
-                      textAnchor = 'end';
-                      textX = node.width - 12;
-                    } else if (align === 'left') {
-                      textAnchor = 'start';
-                      textX = 12;
+                    if (hasImg && hasText) {
+                      if (isInline) {
+                        // Icon on right side (RTL context)
+                        const iconSize = Math.min(node.height - 12, Math.min(50, Math.max(26, node.width * 0.28)));
+                        imgX = node.width - iconSize - 8;
+                        imgY = (node.height - iconSize) / 2;
+                        imgW = iconSize;
+                        imgH = iconSize;
+
+                        textX = (node.width - iconSize - 10) / 2;
+                        textAnchor = 'middle';
+                      } else if (!isCover) {
+                        // Default top image layout
+                        const textBlockH = lines.length * lineHeight;
+                        imgH = Math.max(16, node.height - textBlockH - 14);
+                        imgW = Math.max(10, node.width - 12);
+                        startY = node.height - 8 - ((lines.length - 1) * lineHeight);
+                      }
+                    } else if (!hasImg) {
+                      if (align === 'right') {
+                        textAnchor = 'end';
+                        textX = node.width - 12;
+                      } else if (align === 'left') {
+                        textAnchor = 'start';
+                        textX = 12;
+                      }
                     }
 
                     const fontFamily = node.fontFamily || 'Vazirmatn, sans-serif';
                     const fontStyle = node.fontStyle || 'normal';
 
                     return (
-                      <text
-                        fill={node.textColor}
-                        fontSize={node.fontSize}
-                        fontWeight={node.fontWeight || 'normal'}
-                        fontStyle={fontStyle}
-                        fontFamily={fontFamily}
-                        textAnchor={textAnchor}
-                        className="pointer-events-none select-none"
-                      >
-                        {lines.map((line, idx) => (
-                          <tspan
-                            key={idx}
-                            x={textX}
-                            y={startY + idx * lineHeight}
+                      <>
+                        {hasImg && (
+                          <image
+                            href={node.imageUrl}
+                            x={imgX}
+                            y={imgY}
+                            width={imgW}
+                            height={imgH}
+                            preserveAspectRatio={node.imageFit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}
+                          />
+                        )}
+                        {hasText && (
+                          <text
+                            fill={node.textColor}
+                            fontSize={node.fontSize}
+                            fontWeight={node.fontWeight || 'normal'}
+                            fontStyle={fontStyle}
+                            fontFamily={fontFamily}
+                            textAnchor={textAnchor}
+                            className="pointer-events-none select-none"
                           >
-                            {line || '\u00A0'}
-                          </tspan>
-                        ))}
-                      </text>
+                            {lines.map((line, idx) => (
+                              <tspan
+                                key={idx}
+                                x={textX}
+                                y={startY + idx * lineHeight}
+                              >
+                                {line || '\u00A0'}
+                              </tspan>
+                            ))}
+                          </text>
+                        )}
+                      </>
                     );
                   })()}
 
@@ -706,24 +859,140 @@ export const Canvas: React.FC<CanvasProps> = ({
                     );
                   })}
 
-                  {/* Resize Handle (Bottom-Right) */}
-                  {isSelected && (
-                    <g
-                      transform={`translate(${node.width - 7}, ${node.height - 7})`}
-                      className="cursor-nwse-resize interactive-overlay"
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        setResizingNodeId(node.id);
-                        const canvasPt = screenToCanvas(e.clientX, e.clientY);
-                        setResizeStart({
-                          x: canvasPt.x,
-                          y: canvasPt.y,
-                          w: node.width,
-                          h: node.height,
-                        });
-                      }}
-                    >
-                      <rect width={12} height={12} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                  {/* Multi-Directional Resize Handles (4 Corners + Edges) */}
+                  {isSelected && !node.locked && (
+                    <g className="resize-handles-group interactive-overlay">
+                      {/* Top-Left (NW) */}
+                      <g
+                        transform="translate(-6, -6)"
+                        className="cursor-nwse-resize"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setResizingNodeId(node.id);
+                          const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                          setResizeStart({
+                            x: canvasPt.x,
+                            y: canvasPt.y,
+                            w: node.width,
+                            h: node.height,
+                            nodeX: node.x,
+                            nodeY: node.y,
+                            handle: 'nw',
+                          });
+                        }}
+                      >
+                        <rect width={11} height={11} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                      </g>
+
+                      {/* Top-Right (NE) */}
+                      <g
+                        transform={`translate(${node.width - 5}, -6)`}
+                        className="cursor-nesw-resize"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setResizingNodeId(node.id);
+                          const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                          setResizeStart({
+                            x: canvasPt.x,
+                            y: canvasPt.y,
+                            w: node.width,
+                            h: node.height,
+                            nodeX: node.x,
+                            nodeY: node.y,
+                            handle: 'ne',
+                          });
+                        }}
+                      >
+                        <rect width={11} height={11} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                      </g>
+
+                      {/* Bottom-Left (SW) */}
+                      <g
+                        transform={`translate(-6, ${node.height - 5})`}
+                        className="cursor-nesw-resize"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setResizingNodeId(node.id);
+                          const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                          setResizeStart({
+                            x: canvasPt.x,
+                            y: canvasPt.y,
+                            w: node.width,
+                            h: node.height,
+                            nodeX: node.x,
+                            nodeY: node.y,
+                            handle: 'sw',
+                          });
+                        }}
+                      >
+                        <rect width={11} height={11} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                      </g>
+
+                      {/* Bottom-Right (SE) */}
+                      <g
+                        transform={`translate(${node.width - 6}, ${node.height - 6})`}
+                        className="cursor-nwse-resize"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setResizingNodeId(node.id);
+                          const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                          setResizeStart({
+                            x: canvasPt.x,
+                            y: canvasPt.y,
+                            w: node.width,
+                            h: node.height,
+                            nodeX: node.x,
+                            nodeY: node.y,
+                            handle: 'se',
+                          });
+                        }}
+                      >
+                        <rect width={12} height={12} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                      </g>
+
+                      {/* Right Edge (E) */}
+                      <g
+                        transform={`translate(${node.width - 5}, ${node.height / 2 - 5})`}
+                        className="cursor-ew-resize"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setResizingNodeId(node.id);
+                          const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                          setResizeStart({
+                            x: canvasPt.x,
+                            y: canvasPt.y,
+                            w: node.width,
+                            h: node.height,
+                            nodeX: node.x,
+                            nodeY: node.y,
+                            handle: 'e',
+                          });
+                        }}
+                      >
+                        <rect width={10} height={11} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                      </g>
+
+                      {/* Bottom Edge (S) */}
+                      <g
+                        transform={`translate(${node.width / 2 - 5}, ${node.height - 5})`}
+                        className="cursor-ns-resize"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setResizingNodeId(node.id);
+                          const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                          setResizeStart({
+                            x: canvasPt.x,
+                            y: canvasPt.y,
+                            w: node.width,
+                            h: node.height,
+                            nodeX: node.x,
+                            nodeY: node.y,
+                            handle: 's',
+                          });
+                        }}
+                      >
+                        <rect width={11} height={10} rx={2} fill="#3B82F6" stroke="#FFFFFF" strokeWidth={1.5} />
+                      </g>
                     </g>
                   )}
                 </g>

@@ -6,6 +6,7 @@ import {
   FlowchartPage,
   PrintSettings,
   PrintPaperSize,
+  PrintSplitPosition,
 } from '../types/flowchart';
 import { ProjectSummary } from './ProjectsModal';
 import {
@@ -1269,6 +1270,53 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                     </div>
                   </div>
 
+                  {/* 50/50 Page Center Split Position Selector */}
+                  <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="font-bold flex items-center gap-1.5 text-xs">
+                        <Columns className="w-4 h-4 text-blue-500" />
+                        <span>تقسیم ۵۰٪ مرکز صفحات کتاب (اشکال و نکات)</span>
+                      </label>
+                      <span className="text-[10px] text-blue-500 font-mono font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                        ۵۰٪ اشکال • ۵۰٪ نکات
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-70 mb-2 leading-relaxed">
+                      در تمام دروس کتاب، مرکز هر صفحه دقیقاً به دو قسمت مساوی ۵۰٪ (اشکال و نکات) تقسیم می‌شود. حتی اگر نکته‌ای ثبت نشده باشد، فضای آن جهت یادداشت دستی با قلم حفظ می‌گردد:
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'shapes-top', name: 'اشکال بالا • نکات پایین', icon: '⬆️' },
+                        { id: 'shapes-bottom', name: 'اشکال پایین • نکات بالا', icon: '⬇️' },
+                        { id: 'shapes-right', name: 'اشکال راست • نکات چپ', icon: '➡️' },
+                        { id: 'shapes-left', name: 'اشکال چپ • نکات راست', icon: '⬅️' },
+                      ].map((pos) => {
+                        const isSelected = (settings.splitPosition || 'shapes-top') === pos.id;
+                        return (
+                          <button
+                            key={pos.id}
+                            type="button"
+                            onClick={() =>
+                              onUpdateSettings({
+                                ...settings,
+                                splitPosition: pos.id as PrintSplitPosition,
+                              })
+                            }
+                            className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold ring-2 ring-blue-500/20'
+                                : 'opacity-75 hover:opacity-100 hover:border-slate-400'
+                            }`}
+                            style={{ borderColor: isSelected ? undefined : theme.ui.border }}
+                          >
+                            <span className="text-lg">{pos.icon}</span>
+                            <span className="text-[11px] leading-tight">{pos.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Margins */}
                   <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
                     <label className="font-bold block mb-1.5">حاشیه‌های چاپ (Margins):</label>
@@ -1707,6 +1755,35 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                   <Layout className="w-3 h-3 text-blue-400" />
                   <span>{settings.orientation === 'landscape' ? 'افقی' : 'عمودی'}</span>
                 </button>
+
+                {/* Quick 50/50 Split Position Selector */}
+                <div className="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700 text-[10.5px]">
+                  <span className="text-[10px] text-slate-400 px-1 font-medium">مرکز ۵۰٪:</span>
+                  {[
+                    { id: 'shapes-top', icon: '⬆️', title: 'اشکال بالا (۵۰٪) • نکات پایین (۵۰٪)' },
+                    { id: 'shapes-bottom', icon: '⬇️', title: 'اشکال پایین (۵۰٪) • نکات بالا (۵۰٪)' },
+                    { id: 'shapes-right', icon: '➡️', title: 'اشکال راست (۵۰٪) • نکات چپ (۵۰٪)' },
+                    { id: 'shapes-left', icon: '⬅️', title: 'اشکال چپ (۵۰٪) • نکات راست (۵۰٪)' },
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      onClick={() =>
+                        onUpdateSettings({
+                          ...settings,
+                          splitPosition: btn.id as PrintSplitPosition,
+                        })
+                      }
+                      className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                        (settings.splitPosition || 'shapes-top') === btn.id
+                          ? 'bg-blue-600 text-white font-bold ring-1 ring-blue-400'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title={btn.title}
+                    >
+                      {btn.icon}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1737,6 +1814,21 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                           className="absolute top-0 left-0 right-0 h-2.5"
                           style={{ backgroundColor: accentColor }}
                         />
+
+                        {/* Cover Top Edit Hint Bar */}
+                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-dashed border-slate-200 shrink-0">
+                          <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1.5">
+                            <BookOpen className="w-3.5 h-3.5" />
+                            <span>شناسنامه و متون جلد رسمی کتاب (قابل ویرایش)</span>
+                          </span>
+                          <button
+                            onClick={() => setActiveTab('cover')}
+                            className="text-[10px] text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 flex items-center gap-1 cursor-pointer transition-colors font-medium"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>ویرایش مشخصات جلد</span>
+                          </button>
+                        </div>
 
                         {/* Cover Header */}
                         <div>
@@ -1871,48 +1963,158 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                           </div>
                         )}
 
-                        {/* Center Diagram SVG */}
-                        <div
-                          className="flex-1 flex items-center justify-center my-4 overflow-hidden rounded-lg p-2"
-                          style={{
-                            backgroundColor:
-                              settings.diagramBg === 'white'
-                                ? '#ffffff'
-                                : settings.diagramBg === 'subtle'
-                                ? '#f8fafc'
-                                : '#ffffff',
-                            border:
-                              settings.diagramBorder === 'thin'
-                                ? '1px solid #cbd5e1'
-                                : settings.diagramBorder === 'double'
-                                ? '3px double #cbd5e1'
-                                : 'none',
-                          }}
-                        >
-                          {previewSvgMarkup ? (
-                            <div
-                              className="w-full h-full flex items-center justify-center [&>svg]:max-w-full [&>svg]:max-h-[500px] [&>svg]:w-auto [&>svg]:h-auto"
-                              dangerouslySetInnerHTML={{ __html: previewSvgMarkup.svg }}
-                            />
-                          ) : (
-                            <div className="text-center p-8 text-slate-400 text-xs">
-                              نمودار برای نمایش در دسترس نیست
-                            </div>
-                          )}
-                        </div>
+                        {/* ================= SHEET BODY (50% SHAPES / 50% NOTES SPLIT) ================= */}
+                        {(() => {
+                          const splitPos = settings.splitPosition || 'shapes-top';
+                          const isHorizontal = splitPos === 'shapes-right' || splitPos === 'shapes-left';
 
-                        {/* Description Box */}
-                        {activePreviewItem?.page?.description && (
-                          <div
-                            className="p-3 rounded-lg border border-slate-200 text-xs leading-relaxed mb-2"
-                            style={{ backgroundColor: '#F8FAFC' }}
-                          >
-                            <span className="font-bold text-slate-700 block mb-1">
-                              شرح فرآیند ({activePreviewItem?.page?.name}):
-                            </span>
-                            <p className="text-slate-600">{activePreviewItem.page.description}</p>
-                          </div>
-                        )}
+                          const containerFlexClass =
+                            splitPos === 'shapes-top'
+                              ? 'flex-col'
+                              : splitPos === 'shapes-bottom'
+                              ? 'flex-col-reverse'
+                              : splitPos === 'shapes-right'
+                              ? 'flex-row-reverse'
+                              : 'flex-row';
+
+                          const halfStyle = isHorizontal
+                            ? { width: 'calc(50% - 6px)', height: '100%', maxHeight: '100%' }
+                            : { height: 'calc(50% - 6px)', maxHeight: 'calc(50% - 6px)', width: '100%' };
+
+                          const pageDesc = activePreviewItem?.page?.description || '';
+                          const pageNotes = (activePreviewItem?.page as any)?.notes || '';
+                          const pageImage = activePreviewItem?.page?.imageUrl || '';
+
+                          return (
+                            <div
+                              className={`flex-1 flex ${containerFlexClass} gap-3 my-3 min-h-0 overflow-hidden relative z-10 w-full`}
+                            >
+                              {/* 50% DIAGRAM SVG CONTAINER */}
+                              <div
+                                style={{
+                                  ...halfStyle,
+                                  backgroundColor:
+                                    settings.diagramBg === 'white'
+                                      ? '#ffffff'
+                                      : settings.diagramBg === 'subtle'
+                                      ? '#f8fafc'
+                                      : '#ffffff',
+                                  border:
+                                    settings.diagramBorder === 'thin'
+                                      ? '1px solid #cbd5e1'
+                                      : settings.diagramBorder === 'double'
+                                      ? '3px double #cbd5e1'
+                                      : 'none',
+                                }}
+                                className="flex items-center justify-center overflow-hidden rounded-lg p-2 relative shrink-0"
+                              >
+                                {previewSvgMarkup ? (
+                                  <div
+                                    className="w-full h-full flex items-center justify-center transition-transform [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:w-auto [&>svg]:h-auto [&>svg]:object-contain"
+                                    style={{
+                                      transform: `scale(${(settings.diagramScale || 100) / 100})`,
+                                    }}
+                                    dangerouslySetInnerHTML={{ __html: previewSvgMarkup.svg }}
+                                  />
+                                ) : (
+                                  <div className="text-center p-8 text-slate-400 text-xs">
+                                    نمودار برای نمایش در دسترس نیست
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 50% NOTES & CONSIDERATIONS CARD */}
+                              <div
+                                style={halfStyle}
+                                className="flex flex-col justify-between rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 overflow-hidden relative shadow-xs shrink-0"
+                              >
+                                <div
+                                  className="absolute top-0 right-0 bottom-0 w-1 rounded-r-lg"
+                                  style={{ backgroundColor: accentColor }}
+                                />
+
+                                {/* Card Header Badge */}
+                                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80 shrink-0">
+                                  <div
+                                    className="flex items-center gap-1.5 text-[10.5px] font-bold"
+                                    style={{ color: accentColor }}
+                                  >
+                                    <Lightbulb className="w-3.5 h-3.5 shrink-0" />
+                                    <span>💡 نکات و ملاحظات صفحه</span>
+                                    <span className="text-[9px] text-slate-400 font-mono font-normal">
+                                      ({activePreviewItem?.lessonTitle} • {activePreviewItem?.page?.name})
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                    [بخش ۵۰٪]
+                                  </span>
+                                </div>
+
+                                {/* Card Body with description & notes */}
+                                <div className="flex-1 min-h-0 overflow-y-auto py-1.5 space-y-1.5 text-[9.5px]">
+                                  {pageImage && (
+                                    <div className="rounded border border-slate-200 bg-white p-1 text-center shrink-0">
+                                      <img
+                                        src={pageImage}
+                                        alt="عکس پیوست صفحه"
+                                        className="max-h-24 max-w-full mx-auto object-contain rounded"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {pageDesc && (
+                                    <div
+                                      className="text-slate-700 leading-relaxed bg-white/80 p-2 rounded border border-slate-200/80"
+                                      style={{
+                                        fontWeight: settings.fontWeight,
+                                        textAlign: settings.textAlign,
+                                      }}
+                                    >
+                                      <strong className="block text-[9px] text-slate-800 mb-0.5">
+                                        مستندات و شرح فرآیند:
+                                      </strong>
+                                      <p className="line-clamp-3">{pageDesc}</p>
+                                    </div>
+                                  )}
+
+                                  {settings.showNotes !== false && pageNotes && (
+                                    <div
+                                      className="text-amber-900 leading-relaxed bg-amber-50/80 p-2 rounded border border-amber-200/80"
+                                      style={{
+                                        fontWeight: settings.fontWeight,
+                                        textAlign: settings.textAlign,
+                                      }}
+                                    >
+                                      <strong className="block text-[9px] text-amber-800 mb-0.5">
+                                        نکات کلیدی این صفحه:
+                                      </strong>
+                                      <p className="line-clamp-3">{pageNotes}</p>
+                                    </div>
+                                  )}
+
+                                  {/* Ruled lines for manual handwriting notes (always reserved 50% space) */}
+                                  <div className="mt-1 pt-1 border-t border-dashed border-slate-200 flex-1 flex flex-col justify-evenly min-h-[50px]">
+                                    <div className="text-[8.5px] text-slate-500 font-medium flex items-center justify-between mb-1">
+                                      <span>📝 محل درج نکات و یادداشت‌های دستی (Manual Notes):</span>
+                                      <span className="text-[8px] opacity-70">خطوط راهنما برای نوشتن با قلم</span>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                      <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                      <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                      {!(pageDesc || pageNotes) && (
+                                        <>
+                                          <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                          <div className="border-b border-dashed border-slate-300 h-0 w-full" />
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Page Footer */}
                         {settings.showHeaderFooter && (

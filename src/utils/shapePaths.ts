@@ -226,6 +226,25 @@ export function renderNodeShapePath(node: FlowchartNode): {
         ],
       };
 
+    case 'image':
+      const imgRadius = borderRadius !== undefined ? borderRadius : 6;
+      return {
+        element: 'rect',
+        props: {
+          x: 0,
+          y: 0,
+          width: w,
+          height: h,
+          rx: imgRadius,
+          ry: imgRadius,
+          fill: fill || '#f8fafc',
+          stroke: stroke || '#cbd5e1',
+          strokeWidth,
+          strokeDasharray: strokeDash,
+          opacity: shapeOpacity,
+        },
+      };
+
     default:
       const defaultRadius = borderRadius !== undefined ? borderRadius : 4;
       return {

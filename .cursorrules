@@ -1,0 +1,12 @@
+# Token Efficiency & AI Instructions for FlowCraft Studio
+
+## Core Directives for Token Optimization
+1. **Consult `AI_CONTEXT.md` First**: Before issuing any `view_file` calls, check `AI_CONTEXT.md` for exact line landmarks and component definitions.
+2. **Strictly Targeted Edits**: Always make small, contiguous `replace_file_content` edits with line ranges under 50 lines. Never replace entire multi-thousand line files.
+3. **No Redundant Re-reads**: Do not reread files that were already examined or provided in context.
+4. **Persian & English Compactness**: Provide crisp, accurate responses without fluff, boilerplate apologies, or verbose restatements.
+5. **Project Architecture**:
+   - `src/types/flowchart.ts`: Type definitions, including `PrintSplitPosition` ('shapes-top' | 'shapes-bottom' | 'shapes-right' | 'shapes-left').
+   - `src/utils/printUtils.ts`: 50/50 center split for shapes & notes in single project and aggregate print (`render5050PagePdf`, HTML generators, CSS `.sheet-body.split-*`).
+   - `src/components/PrintModal.tsx`: Print settings modal with 50/50 selector in Tab 3 and top preview toolbar.
+   - `src/components/AggregatePrintStudio.tsx`: Multi-project aggregate print studio with matching 50/50 layout.

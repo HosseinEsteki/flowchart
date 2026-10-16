@@ -7,9 +7,10 @@ export type FlowchartNodeType =
   | 'subroutine'
   | 'database'
   | 'connector'
-  | 'note';
+  | 'note'
+  | 'image';
 
-export type FlowchartPort = 'top' | 'right' | 'bottom' | 'left';
+export type FlowchartPort = 'top' | 'right' | 'bottom' | 'left' | 'auto';
 
 export type LineType = 'orthogonal' | 'curved' | 'straight';
 
@@ -35,6 +36,9 @@ export interface FlowchartNode {
   opacity?: number;
   notes?: string;
   locked?: boolean;
+  imageUrl?: string;
+  imageFit?: 'contain' | 'cover';
+  imagePosition?: 'top' | 'inline' | 'cover';
 }
 
 export interface ShapeTypeColorConfig {
@@ -89,6 +93,9 @@ export interface FlowchartEdge {
   style: 'solid' | 'dashed';
   arrowStart?: boolean;
   arrowEnd?: boolean;
+  waypoints?: Array<{ x: number; y: number }>;
+  manualOffset?: number;
+  routingMode?: 'smart' | 'manual' | 'direct';
 }
 
 export interface FlowchartVersion {
@@ -107,6 +114,7 @@ export interface FlowchartPage {
   name: string;
   description?: string;
   notes?: string;
+  imageUrl?: string;
   nodes: FlowchartNode[];
   edges: FlowchartEdge[];
 }
@@ -139,6 +147,7 @@ export interface PrintSettings {
   showDate: boolean;
   showBorders: boolean;
   showNotes?: boolean;
+  showPageImage?: boolean;
   targetPages: 'all' | 'current';
 
   // Professional Print Layout Editor fields
