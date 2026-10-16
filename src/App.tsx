@@ -287,6 +287,7 @@ export default function App() {
 
   // Clipboard for copy/paste
   const clipboardNodeRef = useRef<FlowchartNode | null>(null);
+  const [hasClipboardNode, setHasClipboardNode] = useState(false);
 
   // Record undo state before modifying
   const pushUndo = useCallback(() => {
@@ -1105,6 +1106,169 @@ export default function App() {
     }
   };
 
+  const handleCopyNode = useCallback((node: FlowchartNode) => {
+    clipboardNodeRef.current = node;
+    setHasClipboardNode(true);
+  }, []);
+
+  const handleCutNode = useCallback((nodeId: string) => {
+    const node = project.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    clipboardNodeRef.current = node;
+    setHasClipboardNode(true);
+    handleDeleteNode(nodeId);
+  }, [project.nodes, handleDeleteNode]);
+
+  const handlePasteNodeAt = useCallback((canvasPos: Point) => {
+    if (!clipboardNodeRef.current) return;
+    pushUndo();
+    const target = clipboardNodeRef.current;
+    const pasteNode: FlowchartNode = {
+      ...JSON.parse(JSON.stringify(target)),
+      id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      x: Math.round(canvasPos.x - target.width / 2),
+      y: Math.round(canvasPos.y - target.height / 2),
+    };
+    updateProjectData([...project.nodes, pasteNode], project.edges);
+    setSelectedNodeId(pasteNode.id);
+  }, [project.nodes, project.edges, pushUndo, updateProjectData]);
+
+  const handleBringToFront = useCallback((nodeId: string) => {
+    const idx = project.nodes.findIndex((n) => n.id === nodeId);
+    if (idx === -1 || idx === project.nodes.length - 1) return;
+    pushUndo();
+    const node = project.nodes[idx];
+    const newNodes = [...project.nodes.filter((n) => n.id !== nodeId), node];
+    updateProjectData(newNodes, project.edges);
+  }, [project.nodes, project.edges, pushUndo, updateProjectData]);
+
+  const handleSendToBack = useCallback((nodeId: string) => {
+    const idx = project.nodes.findIndex((n) => n.id === nodeId);
+    if (idx === -1 || idx === 0) return;
+    pushUndo();
+    const node = project.nodes[idx];
+    const newNodes = [node, ...project.nodes.filter((n) => n.id !== nodeId)];
+    updateProjectData(newNodes, project.edges);
+  }, [project.nodes, project.edges, pushUndo, updateProjectData]);
+
+  const handleBringForward = useCallback((nodeId: string) => {
+    const idx = project.nodes.findIndex((n) => n.id === nodeId);
+    if (idx === -1 || idx === project.nodes.length - 1) return;
+    pushUndo();
+    const newNodes = [...project.nodes];
+    const temp = newNodes[idx];
+    newNodes[idx] = newNodes[idx + 1];
+    newNodes[idx + 1] = temp;
+    updateProjectData(newNodes, project.edges);
+  }, [project.nodes, project.edges, pushUndo, updateProjectData]);
+
+  const handleSendBackward = useCallback((nodeId: string) => {
+    const idx = project.nodes.findIndex((n) => n.id === nodeId);
+    if (idx <= 0) return;
+    pushUndo();
+    const newNodes = [...project.nodes];
+    const temp = newNodes[idx];
+    newNodes[idx] = newNodes[idx - 1];
+    newNodes[idx - 1] = temp;
+    updateProjectData(newNodes, project.edges);
+  }, [project.nodes, project.edges, pushUndo, updateProjectData]);
+
+  const handleAddNodeAt = useCallback((type: FlowchartNodeType, pos: Point) => {
+    pushUndo();
+
+    const baseSizes: Record<FlowchartNodeType, { width: number; height: number }> = {
+      terminal: { width: 140, height: 60 },
+      process: { width: 160, height: 75 },
+      decision: { width: 150, height: 95 },
+      'input-output': { width: 160, height: 70 },
+      document: { width: 150, height: 85 },
+      subroutine: { width: 160, height: 75 },
+      database: { width: 130, height: 95 },
+      connector: { width: 60, height: 60 },
+      note: { width: 160, height: 100 },
+      image: { width: 180, height: 130 },
+    };
+
+    const size = baseSizes[type] || { width: 150, height: 75 };
+    const paletteKey = type === 'input-output' ? 'inputOutput' : type;
+    const pColor = (currentTheme.palette as any)[paletteKey] || currentTheme.palette.process;
+    const customTypeColor = siteDefaultSettings.shapeTypeColors?.[type];
+
+    const defaultLabels: Record<FlowchartNodeType, string> = {
+      terminal: 'شروع / پایان',
+      process: 'پردازش داده‌ها',
+      decision: 'آیا معتبر است؟',
+      'input-output': 'دریافت ورودی',
+      document: 'گزارش خروجی',
+      subroutine: 'فراخوانی سرویس',
+      database: 'پایگاه داده',
+      connector: 'A',
+      note: 'یادداشت توضیحی...',
+      image: 'تصویر و دیاگرام',
+    };
+
+    const newNode: FlowchartNode = {
+      id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type,
+      x: Math.round(pos.x - size.width / 2),
+      y: Math.round(pos.y - size.height / 2),
+      width: size.width,
+      height: size.height,
+      label: defaultLabels[type] || 'گره جدید',
+      fill: customTypeColor?.fill || (type === 'image' ? '#f8fafc' : pColor.fill),
+      stroke: customTypeColor?.stroke || (type === 'image' ? '#cbd5e1' : pColor.stroke),
+      strokeWidth: siteDefaultSettings.shapeStrokeWidth || 2,
+      strokeStyle: siteDefaultSettings.shapeStrokeStyle || 'solid',
+      textColor: customTypeColor?.textColor || pColor.text,
+      fontSize: siteDefaultSettings.shapeFontSize || 13,
+      fontWeight:
+        type === 'terminal' || type === 'decision'
+          ? 'bold'
+          : siteDefaultSettings.shapeFontWeight || 'normal',
+      fontStyle: siteDefaultSettings.shapeFontStyle || 'normal',
+      textAlign: siteDefaultSettings.shapeTextAlign || 'center',
+      fontFamily: siteDefaultSettings.shapeFontFamily || 'Vazirmatn, sans-serif',
+      borderRadius: siteDefaultSettings.shapeBorderRadius || 6,
+      opacity: siteDefaultSettings.shapeOpacity !== undefined ? siteDefaultSettings.shapeOpacity : 1,
+    };
+
+    const updatedNodes = [...project.nodes, newNode];
+    updateProjectData(updatedNodes, project.edges);
+    setSelectedNodeId(newNode.id);
+    setSelectedEdgeId(null);
+
+    if (type === 'image') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e: any) => {
+        const file = e.target?.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const dataUrl = ev.target?.result as string;
+            if (dataUrl) {
+              setProject((prev) => {
+                const nextNodes = prev.nodes.map((n) =>
+                  n.id === newNode.id ? { ...n, imageUrl: dataUrl } : n
+                );
+                const updated = syncProjectWithPages({ ...prev, nodes: nextNodes });
+                triggerCloudSave(updated);
+                return updated;
+              });
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    }
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'node_update', node: newNode }));
+    }
+  }, [currentTheme.palette, project.edges, project.nodes, pushUndo, siteDefaultSettings, triggerCloudSave, updateProjectData]);
+
   // Edge operations
   const handleCreateEdge = (edge: FlowchartEdge) => {
     pushUndo();
@@ -1379,8 +1543,11 @@ export default function App() {
         activeEl &&
         (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
 
+      // Check clipboard items for images
       const items = e.clipboardData?.items;
-      if (items) {
+      const files = e.clipboardData?.files;
+
+      if (items && items.length > 0) {
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           if (item.type.indexOf('image') !== -1) {
@@ -1401,6 +1568,24 @@ export default function App() {
         }
       }
 
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file.type.startsWith('image/')) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const dataUrl = ev.target?.result as string;
+              if (dataUrl) {
+                handlePasteImageData(dataUrl);
+              }
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
+        }
+      }
+
       // If not typing in input, also check if plain text is an image URL
       if (!isInput) {
         const text = e.clipboardData?.getData('text') || '';
@@ -1411,6 +1596,22 @@ export default function App() {
         ) {
           e.preventDefault();
           handlePasteImageData(trimmed);
+          return;
+        }
+
+        // If no image on system clipboard, paste copied flowchart shape if available
+        if (clipboardNodeRef.current) {
+          e.preventDefault();
+          const target = clipboardNodeRef.current;
+          pushUndo();
+          const pasteNode: FlowchartNode = {
+            ...JSON.parse(JSON.stringify(target)),
+            id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            x: target.x + 40,
+            y: target.y + 40,
+          };
+          updateProjectData([...project.nodes, pasteNode], project.edges);
+          setSelectedNodeId(pasteNode.id);
         }
       }
     };
@@ -1448,21 +1649,15 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         if (selectedNodeId) {
           const node = project.nodes.find((n) => n.id === selectedNodeId);
-          if (node) clipboardNodeRef.current = node;
+          if (node) {
+            clipboardNodeRef.current = node;
+            setHasClipboardNode(true);
+          }
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-        if (clipboardNodeRef.current) {
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
+        if (selectedNodeId) {
           e.preventDefault();
-          const target = clipboardNodeRef.current;
-          pushUndo();
-          const pasteNode: FlowchartNode = {
-            ...JSON.parse(JSON.stringify(target)),
-            id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            x: target.x + 40,
-            y: target.y + 40,
-          };
-          updateProjectData([...project.nodes, pasteNode], project.edges);
-          setSelectedNodeId(pasteNode.id);
+          handleCutNode(selectedNodeId);
         }
       } else if (e.key === 'Escape') {
         setSelectedNodeId(null);
@@ -1612,6 +1807,7 @@ export default function App() {
             svgRef={svgRef}
             theme={currentTheme}
             t={t}
+            isRtl={lang === 'fa'}
             nodes={project.nodes}
             edges={project.edges}
             selectedNodeId={selectedNodeId}
@@ -1627,6 +1823,42 @@ export default function App() {
             onUpdateNode={handleUpdateNode}
             onDeleteNode={handleDeleteNode}
             onDuplicateNode={handleDuplicateNode}
+            onCopyNode={handleCopyNode}
+            onCutNode={handleCutNode}
+            onPasteNodeAt={handlePasteNodeAt}
+            hasClipboardNode={hasClipboardNode}
+            onAddNodeAt={handleAddNodeAt}
+            onBringToFront={handleBringToFront}
+            onSendToBack={handleSendToBack}
+            onBringForward={handleBringForward}
+            onSendBackward={handleSendBackward}
+            onTrimAllNodes={handleTrimAllNodes}
+            onClearCanvas={() => {
+              setConfirmDialog({
+                isOpen: true,
+                title: 'پاکسازی صفحه فلوچارت',
+                message: t.clearConfirm,
+                confirmLabel: 'پاکسازی همه',
+                cancelLabel: 'انصراف',
+                isDestructive: true,
+                onConfirm: () => {
+                  pushUndo();
+                  updateProjectData([], []);
+                  setSelectedNodeId(null);
+                  setSelectedEdgeId(null);
+                  if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: 'batch_sync', nodes: [], edges: [] }));
+                  }
+                },
+              });
+            }}
+            onToggleSnapToGrid={() => setSnapToGrid((prev) => !prev)}
+            onSetGridMode={(mode) => setGridMode(mode)}
+            onSelectAllNodes={() => {
+              if (project.nodes.length > 0) {
+                setSelectedNodeId(project.nodes[0].id);
+              }
+            }}
             onCreateEdge={handleCreateEdge}
             onUpdateEdge={handleUpdateEdge}
             onDeleteEdge={handleDeleteEdge}
@@ -1644,6 +1876,7 @@ export default function App() {
               strokeWidth: siteDefaultSettings.connectorStrokeWidth,
               style: siteDefaultSettings.connectorStyle,
             }}
+            onPasteImage={handlePasteImageData}
           />
 
           {/* Multi-Page Tabs Bar */}

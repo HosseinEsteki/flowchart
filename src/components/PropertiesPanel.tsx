@@ -24,6 +24,10 @@ import {
   Image as ImageIcon,
   Upload,
   Clipboard,
+  Zap,
+  ArrowLeft,
+  ArrowRight,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { FONT_OPTIONS, COLOR_SWATCHES } from '../utils/defaultSettings';
 import { trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
@@ -946,6 +950,129 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 {t[st]}
               </button>
             ))}
+          </div>
+
+          {/* Smart Obstacle Avoidance & Direction Guidance */}
+          <div className="space-y-2 pt-2 border-t" style={{ borderColor: theme.ui.border }}>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span>مسیریابی هوشمند و هدایت خطوط</span>
+              </label>
+            </div>
+
+            <div className="text-[10px] opacity-70 leading-relaxed">
+              خطوط به طور خودکار از کنار اشکال عبور می‌کنند و زیر آن‌ها پنهان نمی‌شوند.
+            </div>
+
+            {/* Bypass Direction Buttons */}
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                onClick={() => onUpdateEdge({ ...selectedEdge, manualOffset: (selectedEdge.manualOffset || 0) - 35, routingMode: 'smart' })}
+                className="py-1 px-1.5 rounded-lg border hover:opacity-85 flex items-center justify-center gap-1 text-[10px] font-semibold transition-colors"
+                style={{ borderColor: theme.ui.border }}
+                title="دور زدن از سمت چپ"
+              >
+                <ArrowLeft className="w-3 h-3 text-blue-500" />
+                <span>از چپ</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onUpdateEdge({ ...selectedEdge, waypoints: undefined, manualOffset: 0, routingMode: 'smart' })}
+                className="py-1 px-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-1 text-[10px] font-bold shadow-xs transition-colors"
+                title="بازنشانی به مسیر هوشمند خودکار"
+              >
+                <Zap className="w-3 h-3 text-amber-300" />
+                <span>هوشمند</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onUpdateEdge({ ...selectedEdge, manualOffset: (selectedEdge.manualOffset || 0) + 35, routingMode: 'smart' })}
+                className="py-1 px-1.5 rounded-lg border hover:opacity-85 flex items-center justify-center gap-1 text-[10px] font-semibold transition-colors"
+                style={{ borderColor: theme.ui.border }}
+                title="دور زدن از سمت راست"
+              >
+                <span>از راست</span>
+                <ArrowRight className="w-3 h-3 text-blue-500" />
+              </button>
+            </div>
+
+            {/* Arrowheads selector */}
+            <div className="space-y-1 pt-1">
+              <span className="text-[10px] opacity-75 font-semibold block">پیکان‌های ابتدا و انتها:</span>
+              <div className="grid grid-cols-4 gap-1 text-[10px] font-mono">
+                <button
+                  type="button"
+                  onClick={() => onUpdateEdge({ ...selectedEdge, arrowStart: false, arrowEnd: true })}
+                  className={`py-1 rounded border text-center transition-colors ${
+                    !selectedEdge.arrowStart && selectedEdge.arrowEnd !== false
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'hover:opacity-80'
+                  }`}
+                  style={{ borderColor: theme.ui.border }}
+                  title="فقط انتهای خط"
+                >
+                  ➔ انتها
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateEdge({ ...selectedEdge, arrowStart: true, arrowEnd: true })}
+                  className={`py-1 rounded border text-center transition-colors ${
+                    selectedEdge.arrowStart && selectedEdge.arrowEnd
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'hover:opacity-80'
+                  }`}
+                  style={{ borderColor: theme.ui.border }}
+                  title="پیکان دوطرفه"
+                >
+                  ↔️ دوطرفه
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateEdge({ ...selectedEdge, arrowStart: true, arrowEnd: false })}
+                  className={`py-1 rounded border text-center transition-colors ${
+                    selectedEdge.arrowStart && !selectedEdge.arrowEnd
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'hover:opacity-80'
+                  }`}
+                  style={{ borderColor: theme.ui.border }}
+                  title="فقط ابتدای خط"
+                >
+                  ⬅️ ابتدا
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateEdge({ ...selectedEdge, arrowStart: false, arrowEnd: false })}
+                  className={`py-1 rounded border text-center transition-colors ${
+                    !selectedEdge.arrowStart && selectedEdge.arrowEnd === false
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'hover:opacity-80'
+                  }`}
+                  style={{ borderColor: theme.ui.border }}
+                  title="خط ساده بدون پیکان"
+                >
+                  ─ ساده
+                </button>
+              </div>
+            </div>
+
+            {selectedEdge.waypoints && selectedEdge.waypoints.length > 0 && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onUpdateEdge({ ...selectedEdge, waypoints: undefined, routingMode: 'smart' })}
+                  className="w-full py-1 text-[10px] rounded border border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 flex items-center justify-center gap-1 font-semibold"
+                >
+                  <span>پاک کردن زوایای دستی (برگشت به خودکار)</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Delete edge */}

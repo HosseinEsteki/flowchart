@@ -182,9 +182,16 @@ export function generatePageSvgMarkup(
       const targetNode = nodes.find((n) => n.id === edge.targetNodeId);
       if (!sourceNode || !targetNode) return '';
 
-      const start = getPortPosition(sourceNode, edge.sourcePort);
-      const end = getPortPosition(targetNode, edge.targetPort);
-      const { path: pathD } = calculateEdgePath(start, end, edge.sourcePort, edge.targetPort, edge.lineType);
+      const start = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+      const end = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
+      const { path: pathD } = calculateEdgePath(start, end, edge.sourcePort, edge.targetPort, edge.lineType, {
+        sourceNode,
+        targetNode,
+        allNodes: nodes,
+        waypoints: edge.waypoints,
+        manualOffset: edge.manualOffset,
+        routingMode: edge.routingMode,
+      });
 
       const strokeDash = edge.style === 'dashed' ? 'stroke-dasharray="6,4"' : '';
       const markerId = `arrow-${colorMode}`;

@@ -3,6 +3,7 @@ import {
   FlowchartNode,
   FlowchartEdge,
   FlowchartPort,
+  FlowchartNodeType,
   Collaborator,
   LineType,
 } from '../types/flowchart';
@@ -10,6 +11,7 @@ import { ColorTheme } from '../constants/themes';
 import { TranslationDictionary } from '../constants/translations';
 import { getPortPosition, calculateEdgePath, Point, getNodeBoundingBox } from '../utils/canvasMath';
 import { renderNodeShapePath, trimShapeText, trimNodeTextAndAdjustHeight } from '../utils/shapePaths';
+import { ContextMenu, ContextMenuTarget } from './ContextMenu';
 import {
   Trash2,
   Copy,
@@ -58,6 +60,21 @@ interface CanvasProps {
     style: 'solid' | 'dashed';
   };
   onPasteImage?: (dataUrl: string) => void;
+  isRtl?: boolean;
+  onCopyNode?: (node: FlowchartNode) => void;
+  onCutNode?: (nodeId: string) => void;
+  onPasteNodeAt?: (canvasPos: Point) => void;
+  hasClipboardNode?: boolean;
+  onAddNodeAt?: (type: FlowchartNodeType, pos: Point) => void;
+  onBringToFront?: (nodeId: string) => void;
+  onSendToBack?: (nodeId: string) => void;
+  onBringForward?: (nodeId: string) => void;
+  onSendBackward?: (nodeId: string) => void;
+  onTrimAllNodes?: () => void;
+  onClearCanvas?: () => void;
+  onToggleSnapToGrid?: () => void;
+  onSetGridMode?: (mode: 'dots' | 'lines' | 'none') => void;
+  onSelectAllNodes?: () => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -86,6 +103,21 @@ export const Canvas: React.FC<CanvasProps> = ({
   snapToGrid,
   defaultConnectorSettings,
   onPasteImage,
+  isRtl = true,
+  onCopyNode,
+  onCutNode,
+  onPasteNodeAt,
+  hasClipboardNode,
+  onAddNodeAt,
+  onBringToFront,
+  onSendToBack,
+  onBringForward,
+  onSendBackward,
+  onTrimAllNodes,
+  onClearCanvas,
+  onToggleSnapToGrid,
+  onSetGridMode,
+  onSelectAllNodes,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -228,8 +260,109 @@ export const Canvas: React.FC<CanvasProps> = ({
     [pan, zoom]
   );
 
+  // Context Menu state
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    screenPos: Point;
+    target: ContextMenuTarget;
+  } | null>(null);
+
+  const handleAutoFitNode = (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (node) {
+      const fitted = trimNodeTextAndAdjustHeight(node);
+      onUpdateNode(fitted);
+    }
+  };
+
+  const handleToggleLock = (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (node) {
+      onUpdateNode({ ...node, locked: !node.locked });
+    }
+  };
+
+  const handleChangeNodeType = (nodeId: string, newType: FlowchartNodeType) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    onUpdateNode({
+      ...node,
+      type: newType,
+      borderRadius: newType === 'terminal' || newType === 'connector' ? 9999 : node.borderRadius,
+    });
+  };
+
+  const handleChangeNodeColors = (nodeId: string, fill: string, stroke: string, textColor: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    onUpdateNode({
+      ...node,
+      fill,
+      stroke,
+      textColor,
+    });
+  };
+
+  const handleAttachImage = (nodeId: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e: any) => {
+      const file = e.target?.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target?.result as string;
+          if (dataUrl) {
+            const node = nodes.find((n) => n.id === nodeId);
+            if (node) {
+              onUpdateNode({
+                ...node,
+                imageUrl: dataUrl,
+                width: Math.max(node.width, 180),
+                height: Math.max(node.height, 130),
+                imagePosition: node.imagePosition || 'top',
+                imageFit: node.imageFit || 'contain',
+              });
+            }
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    input.click();
+  };
+
+  const handleReverseEdge = (edgeId: string) => {
+    const edge = edges.find((e) => e.id === edgeId);
+    if (!edge) return;
+    onUpdateEdge({
+      ...edge,
+      sourceNodeId: edge.targetNodeId,
+      sourcePort: edge.targetPort,
+      targetNodeId: edge.sourceNodeId,
+      targetPort: edge.sourcePort,
+    });
+  };
+
+  const handleFitToScreen = () => {
+    if (nodes.length === 0) return;
+    const bbox = getNodeBoundingBox(nodes, 80);
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const scaleX = rect.width / bbox.width;
+    const scaleY = rect.height / bbox.height;
+    const targetZoom = Math.max(0.2, Math.min(2, Math.min(scaleX, scaleY) * 0.9));
+    const targetPanX = (rect.width - bbox.width * targetZoom) / 2 - bbox.minX * targetZoom;
+    const targetPanY = (rect.height - bbox.height * targetZoom) / 2 - bbox.minY * targetZoom;
+    setZoom(targetZoom);
+    setPan({ x: targetPanX, y: targetPanY });
+  };
+
   // Wheel zoom and pan
   const handleWheel = (e: React.WheelEvent) => {
+    setContextMenu(null);
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -245,8 +378,16 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   // Canvas Mouse Down
   const handleMouseDown = (e: React.MouseEvent) => {
-    // If middle click or space key pressed or clicking empty canvas
-    if (e.button === 1 || e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg') {
+    // Only dismiss context menu and start panning if clicking on background canvas/svg
+    const targetEl = e.target as HTMLElement;
+    const isBackground =
+      e.button === 1 ||
+      targetEl === containerRef.current ||
+      targetEl.tagName === 'svg' ||
+      (targetEl.tagName === 'rect' && targetEl.getAttribute('pointer-events') === 'none');
+
+    if (isBackground) {
+      setContextMenu(null);
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
       onSelectNode(null);
@@ -351,6 +492,48 @@ export const Canvas: React.FC<CanvasProps> = ({
       return;
     }
 
+    // Handle Waypoint Dragging
+    if (draggingWaypoint) {
+      const edge = edges.find((e) => e.id === draggingWaypoint.edgeId);
+      if (edge) {
+        let newX = canvasPt.x;
+        let newY = canvasPt.y;
+        if (snapToGrid) {
+          const gridSize = 15;
+          newX = Math.round(newX / gridSize) * gridSize;
+          newY = Math.round(newY / gridSize) * gridSize;
+        }
+
+        const sourceNode = nodes.find((n) => n.id === edge.sourceNodeId);
+        const targetNode = nodes.find((n) => n.id === edge.targetNodeId);
+        let currentWaypoints = edge.waypoints ? [...edge.waypoints] : [];
+
+        if (currentWaypoints.length === 0 && sourceNode && targetNode) {
+          const sPos = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+          const tPos = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
+          const calc = calculateEdgePath(sPos, tPos, edge.sourcePort, edge.targetPort, edge.lineType, {
+            sourceNode,
+            targetNode,
+            allNodes: nodes,
+            manualOffset: edge.manualOffset,
+          });
+          currentWaypoints = calc.points.slice(1, -1).map((p) => ({ ...p }));
+        }
+
+        while (currentWaypoints.length <= draggingWaypoint.index) {
+          currentWaypoints.push({ x: Math.round(newX), y: Math.round(newY) });
+        }
+        currentWaypoints[draggingWaypoint.index] = { x: Math.round(newX), y: Math.round(newY) };
+
+        onUpdateEdge({
+          ...edge,
+          waypoints: currentWaypoints,
+          routingMode: 'manual',
+        });
+      }
+      return;
+    }
+
     // Handle Connecting line
     if (connectingSource) {
       setTempEdgePos(canvasPt);
@@ -365,6 +548,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     setResizeStart(null);
     setConnectingSource(null);
     setTempEdgePos(null);
+    setDraggingWaypoint(null);
   };
 
   // Start connecting from a port
@@ -482,6 +666,24 @@ export const Canvas: React.FC<CanvasProps> = ({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onWheel={handleWheel}
+      onContextMenu={(e) => {
+        const targetEl = e.target as HTMLElement;
+        const isCanvasBackground =
+          targetEl === containerRef.current ||
+          targetEl.tagName === 'svg' ||
+          (targetEl.tagName === 'rect' && targetEl.getAttribute('pointer-events') === 'none');
+
+        if (isCanvasBackground) {
+          e.preventDefault();
+          e.stopPropagation();
+          const canvasPos = screenToCanvas(e.clientX, e.clientY);
+          setContextMenu({
+            isOpen: true,
+            screenPos: { x: e.clientX, y: e.clientY },
+            target: { type: 'canvas', canvasPos },
+          });
+        }
+      }}
       className="relative flex-1 h-[calc(100vh-3.5rem)] overflow-hidden cursor-crosshair select-none"
       style={{ backgroundColor: theme.ui.canvasBg }}
     >
@@ -521,7 +723,7 @@ export const Canvas: React.FC<CanvasProps> = ({
             />
           </pattern>
 
-          {/* Standard Arrow Marker */}
+          {/* Standard Arrow End Marker */}
           <marker
             id="arrow-end"
             viewBox="0 0 10 10"
@@ -534,7 +736,7 @@ export const Canvas: React.FC<CanvasProps> = ({
             <path d="M 0 1 L 9 5 L 0 9 z" fill={theme.isDark ? '#94A3B8' : '#64748B'} />
           </marker>
 
-          {/* Selected Arrow Marker */}
+          {/* Selected Arrow End Marker */}
           <marker
             id="arrow-selected"
             viewBox="0 0 10 10"
@@ -545,6 +747,32 @@ export const Canvas: React.FC<CanvasProps> = ({
             orient="auto-start-reverse"
           >
             <path d="M 0 1 L 9 5 L 0 9 z" fill="#3B82F6" />
+          </marker>
+
+          {/* Standard Arrow Start Marker */}
+          <marker
+            id="arrow-start"
+            viewBox="0 0 10 10"
+            refX="1"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M 9 1 L 0 5 L 9 9 z" fill={theme.isDark ? '#94A3B8' : '#64748B'} />
+          </marker>
+
+          {/* Selected Arrow Start Marker */}
+          <marker
+            id="arrow-start-selected"
+            viewBox="0 0 10 10"
+            refX="1"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto"
+          >
+            <path d="M 9 1 L 0 5 L 9 9 z" fill="#3B82F6" />
           </marker>
         </defs>
 
@@ -565,20 +793,42 @@ export const Canvas: React.FC<CanvasProps> = ({
               const targetNode = nodes.find((n) => n.id === edge.targetNodeId);
               if (!sourceNode || !targetNode) return null;
 
-              const startPos = getPortPosition(sourceNode, edge.sourcePort);
-              const endPos = getPortPosition(targetNode, edge.targetPort);
+              const startPos = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+              const endPos = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
               const { path, labelPos } = calculateEdgePath(
                 startPos,
                 endPos,
                 edge.sourcePort,
                 edge.targetPort,
-                edge.lineType
+                edge.lineType,
+                {
+                  sourceNode,
+                  targetNode,
+                  allNodes: nodes,
+                  waypoints: edge.waypoints,
+                  manualOffset: edge.manualOffset,
+                  routingMode: edge.routingMode,
+                }
               );
 
               const isSelected = selectedEdgeId === edge.id;
 
               return (
-                <g key={edge.id} className="cursor-pointer group">
+                <g
+                  key={edge.id}
+                  className="cursor-pointer group"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelectEdge(edge.id);
+                    onSelectNode(null);
+                    setContextMenu({
+                      isOpen: true,
+                      screenPos: { x: e.clientX, y: e.clientY },
+                      target: { type: 'edge', edge },
+                    });
+                  }}
+                >
                   {/* Invisible thicker stroke for easy clicking */}
                   <path
                     d={path}
@@ -592,6 +842,17 @@ export const Canvas: React.FC<CanvasProps> = ({
                     }}
                   />
 
+                  {/* Clean underlay halo when selected */}
+                  {isSelected && (
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke="#FFFFFF"
+                      strokeWidth={edge.strokeWidth + 5}
+                      opacity={0.85}
+                    />
+                  )}
+
                   {/* Visible Edge Stroke */}
                   <path
                     d={path}
@@ -599,7 +860,8 @@ export const Canvas: React.FC<CanvasProps> = ({
                     stroke={isSelected ? '#3B82F6' : edge.color}
                     strokeWidth={isSelected ? edge.strokeWidth + 1 : edge.strokeWidth}
                     strokeDasharray={edge.style === 'dashed' ? '5,5' : undefined}
-                    markerEnd={isSelected ? 'url(#arrow-selected)' : 'url(#arrow-end)'}
+                    markerStart={edge.arrowStart ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
+                    markerEnd={edge.arrowEnd !== false ? (isSelected ? 'url(#arrow-selected)' : 'url(#arrow-end)') : undefined}
                     className="transition-colors"
                   />
 
@@ -685,13 +947,27 @@ export const Canvas: React.FC<CanvasProps> = ({
                   className="cursor-move"
                   onMouseDown={(e) => {
                     e.stopPropagation();
+                    if (e.button === 0) {
+                      setContextMenu(null);
+                      onSelectNode(node.id);
+                      onSelectEdge(null);
+                      setDraggedNodeId(node.id);
+                      const canvasPt = screenToCanvas(e.clientX, e.clientY);
+                      setDragOffset({
+                        x: canvasPt.x - node.x,
+                        y: canvasPt.y - node.y,
+                      });
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     onSelectNode(node.id);
                     onSelectEdge(null);
-                    setDraggedNodeId(node.id);
-                    const canvasPt = screenToCanvas(e.clientX, e.clientY);
-                    setDragOffset({
-                      x: canvasPt.x - node.x,
-                      y: canvasPt.y - node.y,
+                    setContextMenu({
+                      isOpen: true,
+                      screenPos: { x: e.clientX, y: e.clientY },
+                      target: { type: 'node', node },
                     });
                   }}
                   onDoubleClick={(e) => handleNodeDoubleClick(e, node)}
@@ -1000,6 +1276,113 @@ export const Canvas: React.FC<CanvasProps> = ({
             })}
           </g>
 
+          {/* 2.5. SELECTED EDGE OVERLAY & INTERACTIVE WAYPOINTS (Always on top of nodes) */}
+          {selectedEdgeId && (() => {
+            const edge = edges.find((e) => e.id === selectedEdgeId);
+            if (!edge) return null;
+            const sourceNode = nodes.find((n) => n.id === edge.sourceNodeId);
+            const targetNode = nodes.find((n) => n.id === edge.targetNodeId);
+            if (!sourceNode || !targetNode) return null;
+
+            const startPos = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+            const endPos = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
+            const { path, points } = calculateEdgePath(
+              startPos,
+              endPos,
+              edge.sourcePort,
+              edge.targetPort,
+              edge.lineType,
+              {
+                sourceNode,
+                targetNode,
+                allNodes: nodes,
+                waypoints: edge.waypoints,
+                manualOffset: edge.manualOffset,
+                routingMode: edge.routingMode,
+              }
+            );
+
+            return (
+              <g id="flowchart-selected-edge-overlay" className="pointer-events-auto">
+                {/* Thick highlight path with halo so it's always visible above nodes */}
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="#FFFFFF"
+                  strokeWidth={edge.strokeWidth + 5}
+                  opacity={0.8}
+                />
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="#3B82F6"
+                  strokeWidth={edge.strokeWidth + 1.5}
+                  strokeDasharray={edge.style === 'dashed' ? '5,5' : undefined}
+                  markerStart={edge.arrowStart ? 'url(#arrow-start-selected)' : undefined}
+                  markerEnd={edge.arrowEnd !== false ? 'url(#arrow-selected)' : undefined}
+                />
+
+                {/* Draggable intermediate waypoint knobs */}
+                {points.slice(1, -1).map((pt, idx) => (
+                  <g
+                    key={`wp-${idx}`}
+                    transform={`translate(${pt.x}, ${pt.y})`}
+                    className="cursor-move group/wp"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      setDraggingWaypoint({ edgeId: edge.id, index: idx });
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveWaypoint(edge, idx);
+                    }}
+                  >
+                    <circle r={10} fill="#3B82F6" opacity={0.2} className="group-hover/wp:opacity-40 transition-opacity" />
+                    <circle r={5.5} fill="#FFFFFF" stroke="#3B82F6" strokeWidth={2.2} />
+                  </g>
+                ))}
+
+                {/* Midpoint '+' knobs to insert custom bend points */}
+                {points.slice(0, -1).map((p1, idx) => {
+                  const p2 = points[idx + 1];
+                  const midX = (p1.x + p2.x) / 2;
+                  const midY = (p1.y + p2.y) / 2;
+                  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                  if (dist < 32) return null;
+
+                  return (
+                    <g
+                      key={`mid-${idx}`}
+                      transform={`translate(${midX}, ${midY})`}
+                      className="cursor-pointer group/mid"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddWaypointAt(edge, { x: midX, y: midY }, idx);
+                      }}
+                    >
+                      <circle
+                        r={7}
+                        fill="#3B82F6"
+                        className="opacity-70 group-hover/mid:opacity-100 group-hover/mid:scale-125 transition-transform"
+                      />
+                      <text
+                        x={0}
+                        y={3.5}
+                        textAnchor="middle"
+                        fill="#FFFFFF"
+                        fontSize={10}
+                        fontWeight="bold"
+                        className="pointer-events-none select-none"
+                      >
+                        +
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })()}
+
           {/* 3. REMOTE COLLABORATOR CURSORS */}
           <g id="flowchart-cursors-layer">
             {collaborators.map((user) => {
@@ -1122,6 +1505,40 @@ export const Canvas: React.FC<CanvasProps> = ({
             A-
           </button>
 
+          {/* Quick Image Attachment Button */}
+          <label
+            className="p-1.5 rounded-lg border hover:opacity-80 transition-colors cursor-pointer flex items-center justify-center text-purple-600 dark:text-purple-400"
+            style={{ borderColor: theme.ui.border }}
+            title="جای‌گذاری عکس در این شکل (Ctrl+V یا انتخاب فایل)"
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const dataUrl = ev.target?.result as string;
+                    if (dataUrl) {
+                      onUpdateNode({
+                        ...selectedNode,
+                        imageUrl: dataUrl,
+                        width: Math.max(selectedNode.width, 180),
+                        height: Math.max(selectedNode.height, 130),
+                        imagePosition: selectedNode.imagePosition || 'top',
+                        imageFit: selectedNode.imageFit || 'contain',
+                      });
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
+            />
+          </label>
+
           {/* Duplicate */}
           <button
             onClick={() => onDuplicateNode(selectedNode.id)}
@@ -1143,6 +1560,131 @@ export const Canvas: React.FC<CanvasProps> = ({
           </button>
         </div>
       )}
+
+      {/* Floating Quick Action Toolbar for Selected Edge */}
+      {selectedEdgeId && (() => {
+        const edge = edges.find((e) => e.id === selectedEdgeId);
+        if (!edge) return null;
+        const sourceNode = nodes.find((n) => n.id === edge.sourceNodeId);
+        const targetNode = nodes.find((n) => n.id === edge.targetNodeId);
+        if (!sourceNode || !targetNode) return null;
+
+        const startPos = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+        const endPos = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
+        const { labelPos } = calculateEdgePath(
+          startPos,
+          endPos,
+          edge.sourcePort,
+          edge.targetPort,
+          edge.lineType,
+          {
+            sourceNode,
+            targetNode,
+            allNodes: nodes,
+            waypoints: edge.waypoints,
+            manualOffset: edge.manualOffset,
+            routingMode: edge.routingMode,
+          }
+        );
+
+        const screenX = labelPos.x * zoom + pan.x;
+        const screenY = labelPos.y * zoom + pan.y - 48;
+
+        return (
+          <div
+            className="absolute z-20 flex items-center gap-1.5 p-1.5 rounded-xl shadow-2xl border backdrop-blur-md transition-all animate-in fade-in select-none text-xs"
+            style={{
+              left: Math.max(16, Math.min(window.innerWidth - 380, screenX - 150)),
+              top: Math.max(16, screenY),
+              backgroundColor: theme.ui.cardBg,
+              borderColor: theme.ui.border,
+              color: theme.ui.textPrimary,
+            }}
+          >
+            {/* Route Left / Right */}
+            <button
+              type="button"
+              title="هدایت و دور زدن از سمت چپ"
+              onClick={() => onUpdateEdge({ ...edge, manualOffset: (edge.manualOffset || 0) - 35, routingMode: 'smart' })}
+              className="px-2 py-1 rounded-lg border hover:opacity-85 flex items-center gap-1 font-semibold text-[11px]"
+              style={{ borderColor: theme.ui.border }}
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-blue-500" />
+              <span>از چپ</span>
+            </button>
+
+            {/* Smart Auto Route Reset */}
+            <button
+              type="button"
+              title="مسیریابی خودکار هوشمند بدون برخورد با موانع"
+              onClick={() => onUpdateEdge({ ...edge, waypoints: undefined, manualOffset: 0, routingMode: 'smart' })}
+              className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 font-bold text-[11px] shadow-xs"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>هوشمند</span>
+            </button>
+
+            {/* Route Right */}
+            <button
+              type="button"
+              title="هدایت و دور زدن از سمت راست"
+              onClick={() => onUpdateEdge({ ...edge, manualOffset: (edge.manualOffset || 0) + 35, routingMode: 'smart' })}
+              className="px-2 py-1 rounded-lg border hover:opacity-85 flex items-center gap-1 font-semibold text-[11px]"
+              style={{ borderColor: theme.ui.border }}
+            >
+              <span>از راست</span>
+              <ArrowRight className="w-3.5 h-3.5 text-blue-500" />
+            </button>
+
+            <div className="w-[1px] h-4 bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+            {/* Line Type Cycle */}
+            <button
+              type="button"
+              title={`نوع خط: ${edge.lineType}`}
+              onClick={() => {
+                const nextType: LineType = edge.lineType === 'orthogonal' ? 'curved' : edge.lineType === 'curved' ? 'straight' : 'orthogonal';
+                onUpdateEdge({ ...edge, lineType: nextType });
+              }}
+              className="px-2 py-1 rounded-lg border hover:opacity-85 text-[11px] font-medium"
+              style={{ borderColor: theme.ui.border }}
+            >
+              {edge.lineType === 'orthogonal' ? '🔀 پله‌ای' : edge.lineType === 'curved' ? '〰️ منحنی' : '📏 مستقیم'}
+            </button>
+
+            {/* Arrow Heads Cycle */}
+            <button
+              type="button"
+              title="تغییر جهت پیکان‌ها"
+              onClick={() => {
+                if (!edge.arrowStart && edge.arrowEnd !== false) {
+                  onUpdateEdge({ ...edge, arrowStart: true, arrowEnd: true });
+                } else if (edge.arrowStart && edge.arrowEnd) {
+                  onUpdateEdge({ ...edge, arrowStart: true, arrowEnd: false });
+                } else if (edge.arrowStart && !edge.arrowEnd) {
+                  onUpdateEdge({ ...edge, arrowStart: false, arrowEnd: false });
+                } else {
+                  onUpdateEdge({ ...edge, arrowStart: false, arrowEnd: true });
+                }
+              }}
+              className="px-2 py-1 rounded-lg border hover:opacity-85 text-[11px] font-mono font-bold"
+              style={{ borderColor: theme.ui.border }}
+            >
+              {edge.arrowStart && edge.arrowEnd ? '↔️ دوطرفه' : edge.arrowStart ? '⬅️ ابتدا' : edge.arrowEnd !== false ? '➔ انتها' : '─ ساده'}
+            </button>
+
+            {/* Delete Edge */}
+            <button
+              type="button"
+              title="حذف خط ارتباطی"
+              onClick={() => onDeleteEdge(edge.id)}
+              className="p-1 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Inline Text Editor Overlay when Double-Clicked */}
       {editingNodeId && (
@@ -1332,6 +1874,103 @@ export const Canvas: React.FC<CanvasProps> = ({
           </div>
         )}
       </div>
+
+      {/* Professional Floating Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          isOpen={contextMenu.isOpen}
+          onClose={() => setContextMenu(null)}
+          screenPos={contextMenu.screenPos}
+          target={contextMenu.target}
+          theme={theme}
+          isRtl={isRtl}
+          onEditNodeText={(nodeId) => {
+            const node = nodes.find((n) => n.id === nodeId);
+            if (node) {
+              setEditingNodeId(node.id);
+              setEditingText(node.label);
+            }
+          }}
+          onDuplicateNode={onDuplicateNode}
+          onCopyNode={onCopyNode}
+          onCutNode={onCutNode}
+          onDeleteNode={onDeleteNode}
+          onChangeNodeType={handleChangeNodeType}
+          onChangeNodeColors={handleChangeNodeColors}
+          onBringToFront={onBringToFront}
+          onSendToBack={onSendToBack}
+          onBringForward={onBringForward}
+          onSendBackward={onSendBackward}
+          onToggleNodeLock={handleToggleLock}
+          onAutoFitNodeText={handleAutoFitNode}
+          onAttachImageToNode={handleAttachImage}
+          onEditEdgeLabel={(edgeId) => {
+            const edge = edges.find((e) => e.id === edgeId);
+            if (edge) {
+              setEditingEdgeId(edge.id);
+              setEditingEdgeLabel(edge.label || '');
+            }
+          }}
+          onChangeEdgeLineType={(edgeId, lineType) => {
+            const edge = edges.find((e) => e.id === edgeId);
+            if (edge) onUpdateEdge({ ...edge, lineType });
+          }}
+          onChangeEdgeArrows={(edgeId, arrowStart, arrowEnd) => {
+            const edge = edges.find((e) => e.id === edgeId);
+            if (edge) onUpdateEdge({ ...edge, arrowStart, arrowEnd });
+          }}
+          onChangeEdgeStyle={(edgeId, style) => {
+            const edge = edges.find((e) => e.id === edgeId);
+            if (edge) onUpdateEdge({ ...edge, style });
+          }}
+          onChangeEdgeStrokeWidth={(edgeId, strokeWidth) => {
+            const edge = edges.find((e) => e.id === edgeId);
+            if (edge) onUpdateEdge({ ...edge, strokeWidth });
+          }}
+          onChangeEdgeColor={(edgeId, color) => {
+            const edge = edges.find((e) => e.id === edgeId);
+            if (edge) onUpdateEdge({ ...edge, color });
+          }}
+          onReverseEdge={handleReverseEdge}
+          onDeleteEdge={onDeleteEdge}
+          onAddNodeAt={onAddNodeAt}
+          onPasteAt={onPasteNodeAt}
+          hasClipboardNode={hasClipboardNode}
+          onInsertImageAt={(_pos) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = (e: any) => {
+              const file = e.target?.files?.[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  const dataUrl = ev.target?.result as string;
+                  if (dataUrl) {
+                    onPasteImage?.(dataUrl);
+                  }
+                };
+                reader.readAsDataURL(file);
+              }
+            };
+            input.click();
+          }}
+          onZoomIn={() => setZoom((prev) => Math.min(3, prev + 0.15))}
+          onZoomOut={() => setZoom((prev) => Math.max(0.3, prev - 0.15))}
+          onResetZoom={() => {
+            setZoom(1);
+            setPan({ x: 40, y: 30 });
+          }}
+          onFitToScreen={handleFitToScreen}
+          gridMode={gridMode}
+          onSetGridMode={onSetGridMode}
+          snapToGrid={snapToGrid}
+          onToggleSnapToGrid={onToggleSnapToGrid}
+          onAutoFitAllNodes={onTrimAllNodes}
+          onSelectAllNodes={onSelectAllNodes}
+          onClearCanvas={onClearCanvas}
+        />
+      )}
     </div>
   );
 };

@@ -19,6 +19,9 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({
   if (!isOpen) return null;
 
   const shortcutsList = [
+    { key: 'Right Click (راست‌کلیک)', desc: 'منوی زمینه حرفه‌ای (ویرایش، تغییر شکل، رنگ، لایه‌ها)' },
+    { key: 'Ctrl + C / Ctrl + X', desc: 'کپی و برش شکل انتخاب‌شده' },
+    { key: 'Ctrl + V', desc: 'جای‌گذاری شکل یا تصویر در موقعیت موس' },
     { key: 'Ctrl + Z', desc: t.shortcutUndo },
     { key: 'Ctrl + Y / Ctrl+Shift+Z', desc: t.shortcutRedo },
     { key: 'Delete / Backspace', desc: t.shortcutDelete },
