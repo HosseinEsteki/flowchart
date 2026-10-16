@@ -18,7 +18,7 @@ import {
 import { THEMES } from './constants/themes';
 import { TRANSLATIONS } from './constants/translations';
 import { TEMPLATES } from './constants/templates';
-import { Point, getNodeBoundingBox } from './utils/canvasMath';
+import { Point, getNodeBoundingBox, getPortPosition, calculateEdgePath } from './utils/canvasMath';
 import { trimNodeTextAndAdjustHeight } from './utils/shapePaths';
 import {
   getSiteDefaultSettings,
@@ -288,6 +288,18 @@ export default function App() {
   // Clipboard for copy/paste
   const clipboardNodeRef = useRef<FlowchartNode | null>(null);
   const [hasClipboardNode, setHasClipboardNode] = useState(false);
+
+  // Track continuous keyboard nudging to group undo actions
+  const isNudgingRef = useRef(false);
+  const nudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (nudgeTimeoutRef.current) {
+        clearTimeout(nudgeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Record undo state before modifying
   const pushUndo = useCallback(() => {
@@ -1619,7 +1631,38 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is currently typing in input or textarea
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest('input, textarea, [contenteditable="true"]')
+      ) {
+        return;
+      }
+
+      // If any modal is open, only handle Escape
+      const isAnyModalOpen =
+        exportModalOpen ||
+        shortcutsModalOpen ||
+        collaborationModalOpen ||
+        versionsModalOpen ||
+        isProjectsModalOpen ||
+        printModalOpen ||
+        defaultSettingsModalOpen ||
+        confirmDialog.isOpen;
+
+      if (isAnyModalOpen) {
+        if (e.key === 'Escape') {
+          setSelectedNodeId(null);
+          setSelectedEdgeId(null);
+          setExportModalOpen(false);
+          setShortcutsModalOpen(false);
+          setCollaborationModalOpen(false);
+          setVersionsModalOpen(false);
+          setIsProjectsModalOpen(false);
+          setPrintModalOpen(false);
+          setDefaultSettingsModalOpen(false);
+        }
         return;
       }
 
@@ -1659,6 +1702,134 @@ export default function App() {
           e.preventDefault();
           handleCutNode(selectedNodeId);
         }
+      } else if (
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowRight' ||
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowDown'
+      ) {
+        if (!selectedNodeId && !selectedEdgeId) return;
+
+        e.preventDefault();
+
+        // Determine movement step:
+        // Alt: 1px micro-nudge
+        // Shift: 30px (or 20px if not snap)
+        // Standard: 15px (snapToGrid size) or 10px
+        const step = e.altKey
+          ? 1
+          : e.shiftKey
+          ? (snapToGrid ? 30 : 20)
+          : (snapToGrid ? 15 : 10);
+
+        let dx = 0;
+        let dy = 0;
+        if (e.key === 'ArrowLeft') dx = -step;
+        else if (e.key === 'ArrowRight') dx = step;
+        else if (e.key === 'ArrowUp') dy = -step;
+        else if (e.key === 'ArrowDown') dy = step;
+
+        // Group multiple rapid arrow keydown events into a single undo step
+        if (!isNudgingRef.current) {
+          pushUndo();
+          isNudgingRef.current = true;
+        }
+        if (nudgeTimeoutRef.current) {
+          clearTimeout(nudgeTimeoutRef.current);
+        }
+        nudgeTimeoutRef.current = setTimeout(() => {
+          isNudgingRef.current = false;
+        }, 500);
+
+        // 1. Moving selected shape (node)
+        if (selectedNodeId) {
+          const node = project.nodes.find((n) => n.id === selectedNodeId);
+          if (node && !node.locked) {
+            let newX = node.x + dx;
+            let newY = node.y + dy;
+
+            if (snapToGrid && !e.altKey) {
+              const gridSize = 15;
+              newX = Math.round(newX / gridSize) * gridSize;
+              newY = Math.round(newY / gridSize) * gridSize;
+            }
+
+            handleUpdateNode({
+              ...node,
+              x: newX,
+              y: newY,
+            });
+          }
+        }
+        // 2. Moving selected line (edge)
+        else if (selectedEdgeId) {
+          const edge = project.edges.find((e) => e.id === selectedEdgeId);
+          if (edge) {
+            if (edge.waypoints && edge.waypoints.length > 0) {
+              // Shift existing custom waypoints
+              const updatedWaypoints = edge.waypoints.map((wp) => ({
+                x: Math.round(wp.x + dx),
+                y: Math.round(wp.y + dy),
+              }));
+              handleUpdateEdge({
+                ...edge,
+                waypoints: updatedWaypoints,
+                manualOffset: (edge.manualOffset || 0) + dx,
+                routingMode: 'manual',
+              });
+            } else {
+              // Convert current computed path points to waypoints and shift them
+              const sourceNode = project.nodes.find((n) => n.id === edge.sourceNodeId);
+              const targetNode = project.nodes.find((n) => n.id === edge.targetNodeId);
+
+              if (sourceNode && targetNode) {
+                const sPos = getPortPosition(sourceNode, edge.sourcePort, targetNode, 'source');
+                const tPos = getPortPosition(targetNode, edge.targetPort, sourceNode, 'target');
+                const calc = calculateEdgePath(
+                  sPos,
+                  tPos,
+                  edge.sourcePort,
+                  edge.targetPort,
+                  edge.lineType,
+                  {
+                    sourceNode,
+                    targetNode,
+                    allNodes: project.nodes,
+                    manualOffset: edge.manualOffset,
+                    routingMode: edge.routingMode,
+                  }
+                );
+
+                let updatedWaypoints: Array<{ x: number; y: number }>;
+                if (calc.points && calc.points.length > 2) {
+                  updatedWaypoints = calc.points.slice(1, -1).map((p) => ({
+                    x: Math.round(p.x + dx),
+                    y: Math.round(p.y + dy),
+                  }));
+                } else {
+                  updatedWaypoints = [
+                    {
+                      x: Math.round((sPos.x + tPos.x) / 2 + dx),
+                      y: Math.round((sPos.y + tPos.y) / 2 + dy),
+                    },
+                  ];
+                }
+
+                handleUpdateEdge({
+                  ...edge,
+                  waypoints: updatedWaypoints,
+                  manualOffset: (edge.manualOffset || 0) + dx,
+                  routingMode: 'manual',
+                });
+              } else {
+                handleUpdateEdge({
+                  ...edge,
+                  manualOffset: (edge.manualOffset || 0) + dx,
+                });
+              }
+            }
+          }
+        }
       } else if (e.key === 'Escape') {
         setSelectedNodeId(null);
         setSelectedEdgeId(null);
@@ -1670,11 +1841,28 @@ export default function App() {
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowRight' ||
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowDown'
+      ) {
+        isNudgingRef.current = false;
+        if (nudgeTimeoutRef.current) {
+          clearTimeout(nudgeTimeoutRef.current);
+          nudgeTimeoutRef.current = null;
+        }
+      }
+    };
+
     window.addEventListener('paste', handlePaste);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('paste', handlePaste);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
   }, [
     handlePasteImageData,
@@ -1687,8 +1875,20 @@ export default function App() {
     handleDeleteNode,
     handleDeleteEdge,
     handleDuplicateNode,
+    handleCutNode,
+    handleUpdateNode,
+    handleUpdateEdge,
     pushUndo,
     updateProjectData,
+    snapToGrid,
+    exportModalOpen,
+    shortcutsModalOpen,
+    collaborationModalOpen,
+    versionsModalOpen,
+    isProjectsModalOpen,
+    printModalOpen,
+    defaultSettingsModalOpen,
+    confirmDialog.isOpen,
   ]);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId) || null;

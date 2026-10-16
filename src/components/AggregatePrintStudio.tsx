@@ -17,6 +17,7 @@ import {
   AggregatePrintOptions,
   getFontFamilyCss,
   getMarginMm,
+  paginatePageForPrint,
 } from '../utils/printUtils';
 import {
   Printer,
@@ -461,7 +462,12 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
 
       const lessonTitle = projectCustomTitles[proj.id] || proj.title || `درس ${pIdx + 1}`;
 
-      effectivePages.forEach((page, pgIdx) => {
+      const paginatedPages: FlowchartPage[] = [];
+      effectivePages.forEach((p) => {
+        paginatedPages.push(...paginatePageForPrint(p, settings));
+      });
+
+      paginatedPages.forEach((page, pgIdx) => {
         list.push({
           type: 'diagram',
           project: proj,
@@ -480,6 +486,7 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
     includeMasterCover,
     projectPagesMap,
     projectCustomTitles,
+    settings,
   ]);
 
   const totalSheetsCount = flattenedPreviewPages.length;
@@ -1270,26 +1277,28 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                     </div>
                   </div>
 
-                  {/* 50/50 Page Center Split Position Selector */}
+                  {/* 50% Left/Right vs Text-proportional Top/Bottom Split Selector */}
                   <div className="pt-3 border-t" style={{ borderColor: theme.ui.border }}>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="font-bold flex items-center gap-1.5 text-xs">
                         <Columns className="w-4 h-4 text-blue-500" />
-                        <span>تقسیم ۵۰٪ مرکز صفحات کتاب (اشکال و نکات)</span>
+                        <span>چیدمان اشکال و نکات (چپ/راست ۵۰٪ • بالا/پایین متناسب با متن)</span>
                       </label>
                       <span className="text-[10px] text-blue-500 font-mono font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                        ۵۰٪ اشکال • ۵۰٪ نکات
+                        {settings.splitPosition === 'shapes-right' || settings.splitPosition === 'shapes-left'
+                          ? 'افقی ۵۰٪ ۵۰٪'
+                          : 'ارتفاع بهینه متن'}
                       </span>
                     </div>
                     <p className="text-[11px] opacity-70 mb-2 leading-relaxed">
-                      در تمام دروس کتاب، مرکز هر صفحه دقیقاً به دو قسمت مساوی ۵۰٪ (اشکال و نکات) تقسیم می‌شود. حتی اگر نکته‌ای ثبت نشده باشد، فضای آن جهت یادداشت دستی با قلم حفظ می‌گردد:
+                      در چیدمان چپ و راست، صفحه دقیقاً ۵۰٪ ۵۰٪ تقسیم می‌شود. در چیدمان بالا و پایین، کادر نکات فقط به اندازه متن فضا می‌گیرد و مابقی فضا تماماً به اشکال داده می‌شود تا سایز نمودار حداکثر و کاملاً خوانا باشد:
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { id: 'shapes-top', name: 'اشکال بالا • نکات پایین', icon: '⬆️' },
-                        { id: 'shapes-bottom', name: 'اشکال پایین • نکات بالا', icon: '⬇️' },
-                        { id: 'shapes-right', name: 'اشکال راست • نکات چپ', icon: '➡️' },
-                        { id: 'shapes-left', name: 'اشکال چپ • نکات راست', icon: '⬅️' },
+                        { id: 'shapes-top', name: 'اشکال بالا (حداکثر فضا) • متن پایین', icon: '⬆️' },
+                        { id: 'shapes-bottom', name: 'اشکال پایین (حداکثر فضا) • متن بالا', icon: '⬇️' },
+                        { id: 'shapes-right', name: 'اشکال راست (۵۰٪) • نکات چپ (۵۰٪)', icon: '➡️' },
+                        { id: 'shapes-left', name: 'اشکال چپ (۵۰٪) • نکات راست (۵۰٪)', icon: '⬅️' },
                       ].map((pos) => {
                         const isSelected = (settings.splitPosition || 'shapes-top') === pos.id;
                         return (
@@ -1977,9 +1986,13 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                               ? 'flex-row-reverse'
                               : 'flex-row';
 
-                          const halfStyle = isHorizontal
+                          const diagramContainerStyle = isHorizontal
                             ? { width: 'calc(50% - 6px)', height: '100%', maxHeight: '100%' }
-                            : { height: 'calc(50% - 6px)', maxHeight: 'calc(50% - 6px)', width: '100%' };
+                            : { width: '100%', flex: '1 1 auto', minHeight: 0, height: '100%' };
+
+                          const notesContainerStyle = isHorizontal
+                            ? { width: 'calc(50% - 6px)', height: '100%', maxHeight: '100%' }
+                            : { width: '100%', flex: '0 0 auto', maxHeight: '42%' };
 
                           const pageDesc = activePreviewItem?.page?.description || '';
                           const pageNotes = (activePreviewItem?.page as any)?.notes || '';
@@ -1989,10 +2002,10 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                             <div
                               className={`flex-1 flex ${containerFlexClass} gap-3 my-3 min-h-0 overflow-hidden relative z-10 w-full`}
                             >
-                              {/* 50% DIAGRAM SVG CONTAINER */}
+                              {/* DIAGRAM SVG CONTAINER (Full remaining space in vertical, 50% in horizontal) */}
                               <div
                                 style={{
-                                  ...halfStyle,
+                                  ...diagramContainerStyle,
                                   backgroundColor:
                                     settings.diagramBg === 'white'
                                       ? '#ffffff'
@@ -2023,9 +2036,9 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                                 )}
                               </div>
 
-                              {/* 50% NOTES & CONSIDERATIONS CARD */}
+                              {/* NOTES & CONSIDERATIONS CARD (Fits text in vertical, 50% in horizontal) */}
                               <div
-                                style={halfStyle}
+                                style={notesContainerStyle}
                                 className="flex flex-col justify-between rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 overflow-hidden relative shadow-xs shrink-0"
                               >
                                 <div
@@ -2046,7 +2059,7 @@ export const AggregatePrintStudio: React.FC<AggregatePrintStudioProps> = ({
                                     </span>
                                   </div>
                                   <span className="text-[9px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                                    [بخش ۵۰٪]
+                                    {isHorizontal ? '[بخش ۵۰٪ چپ/راست]' : '[متناسب با متن]'}
                                   </span>
                                 </div>
 

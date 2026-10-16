@@ -20,6 +20,7 @@ import {
   generatePrintReportHtml,
   getFontFamilyCss,
   exportHighResPng,
+  paginateProjectPages,
 } from '../utils/printUtils';
 import { ProjectSummary } from './ProjectsModal';
 import { AggregatePrintStudio } from './AggregatePrintStudio';
@@ -122,26 +123,10 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const [localPageNotes, setLocalPageNotes] = useState<string>('');
   const [localPageImage, setLocalPageImage] = useState<string>('');
 
-  // Available flowchart pages
+  // Available flowchart pages (automatically paginated with "ادامه" continuation connectors if exceeding standard size)
   const availablePages = useMemo<FlowchartPage[]>(() => {
-    if (settings.targetPages === 'current') {
-      const active = (project.pages || []).find((p) => p.id === project.activePageId);
-      return active ? [active] : project.pages || [];
-    }
-    return project.pages && project.pages.length > 0
-      ? project.pages
-      : [
-          {
-            id: 'p1',
-            name: 'صفحه اصلی',
-            description: '',
-            notes: '',
-            imageUrl: '',
-            nodes: project.nodes || [],
-            edges: project.edges || [],
-          },
-        ];
-  }, [project, settings.targetPages]);
+    return paginateProjectPages(project, settings);
+  }, [project, settings]);
 
   // Current page validation
   const safePageIndex = Math.min(previewPageIndex, Math.max(0, availablePages.length - 1));
@@ -261,31 +246,22 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   // Real-time project snapshot with live description and notes edits
   const projectWithLiveEdits = useMemo<FlowchartProject>(() => {
     if (!isOpen) return project;
-    const updatedPages = (project.pages || []).map((p) =>
-      p.id === activePreviewPage?.id
-        ? { ...p, description: localPageDesc, notes: localPageNotes }
-        : p
-    );
+    const updatedPages = (project.pages || []).map((p) => {
+      const isCurrent =
+        p.id === activePreviewPage?.id ||
+        Boolean(activePreviewPage?.id?.startsWith(`${p.id}_part_`));
+      return isCurrent
+        ? { ...p, description: localPageDesc, notes: localPageNotes, imageUrl: localPageImage }
+        : p;
+    });
     return {
       ...project,
       title: settings.documentTitle || project.title,
       description: project.description,
       notes: project.notes,
-      pages:
-        updatedPages.length > 0
-          ? updatedPages
-          : [
-              {
-                id: activePreviewPage?.id || 'p1',
-                name: activePreviewPage?.name || 'صفحه اصلی',
-                description: localPageDesc || '',
-                notes: localPageNotes || '',
-                nodes: activePreviewPage?.nodes || project.nodes || [],
-                edges: activePreviewPage?.edges || project.edges || [],
-              },
-            ],
+      pages: updatedPages.length > 0 ? updatedPages : project.pages,
     };
-  }, [isOpen, project, activePreviewPage, localPageDesc, localPageNotes, settings.documentTitle]);
+  }, [isOpen, project, activePreviewPage, localPageDesc, localPageNotes, localPageImage, settings.documentTitle]);
 
   if (!isOpen) return null;
 
@@ -1174,26 +1150,28 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                     )}
                   </div>
 
-                  {/* 50/50 Split Position Selector (اصلاحیه مرکز صفحه ۵۰٪ اشکال و ۵۰٪ نکات) */}
+                  {/* 50% Left/Right vs Text-proportional Top/Bottom Split Selector */}
                   <div className="pt-3 border-t space-y-2.5" style={{ borderColor: theme.ui.border }}>
                     <div className="flex items-center justify-between">
                       <label className="font-bold flex items-center gap-2 text-xs">
                         <Columns className="w-4 h-4 text-blue-500" />
-                        <span>تقسیم ۵۰٪ مرکز صفحه (اشکال و نکات)</span>
+                        <span>چیدمان اشکال و نکات (چپ/راست ۵۰٪ • بالا/پایین متناسب با متن)</span>
                       </label>
                       <span className="text-[10px] text-blue-500 font-mono font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                        ۵۰٪ اشکال • ۵۰٪ نکات
+                        {settings.splitPosition === 'shapes-right' || settings.splitPosition === 'shapes-left'
+                          ? 'افقی ۵۰٪ ۵۰٪'
+                          : 'ارتفاع بهینه متن'}
                       </span>
                     </div>
                     <p className="text-[11px] opacity-70 leading-relaxed">
-                      مرکز صفحه بین اشکال و نکات به دو بخش مساوی (۵۰٪) تقسیم می‌شود. موقعیت دلخواه را انتخاب کنید:
+                      در چیدمان چپ و راست، صفحه دقیقاً ۵۰٪ ۵۰٪ تقسیم می‌شود. در چیدمان بالا و پایین، کادر نکات فقط به اندازه متن فضا می‌گیرد و مابقی فضا تماماً به اشکال داده می‌شود تا سایز نمودار حداکثر و کاملاً خوانا باشد:
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { id: 'shapes-top', name: 'اشکال بالا • نکات پایین', icon: '⬆️' },
-                        { id: 'shapes-bottom', name: 'اشکال پایین • نکات بالا', icon: '⬇️' },
-                        { id: 'shapes-right', name: 'اشکال راست • نکات چپ', icon: '➡️' },
-                        { id: 'shapes-left', name: 'اشکال چپ • نکات راست', icon: '⬅️' },
+                        { id: 'shapes-top', name: 'اشکال بالا (حداکثر فضا) • متن پایین', icon: '⬆️' },
+                        { id: 'shapes-bottom', name: 'اشکال پایین (حداکثر فضا) • متن بالا', icon: '⬇️' },
+                        { id: 'shapes-right', name: 'اشکال راست (۵۰٪) • نکات چپ (۵۰٪)', icon: '➡️' },
+                        { id: 'shapes-left', name: 'اشکال چپ (۵۰٪) • نکات راست (۵۰٪)', icon: '⬅️' },
                       ].map((pos) => {
                         const isSelected = (settings.splitPosition || 'shapes-top') === pos.id;
                         return (
@@ -1345,6 +1323,57 @@ export const PrintModal: React.FC<PrintModalProps> = ({
               {/* ================= TAB 4: DIAGRAM LAYOUT & SCALE ================= */}
               {activeTab === 'diagram' && (
                 <div className="space-y-4">
+                  {/* Auto Multi-Page Legibility Pagination */}
+                  <div
+                    className="p-3.5 rounded-xl border space-y-2.5 bg-blue-50/40 dark:bg-blue-950/30"
+                    style={{ borderColor: `${accentColor}40` }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400">
+                        <Sparkles className="w-4 h-4 shrink-0" />
+                        <span>تقسیم هوشمند صفحات برای حفظ خوانایی (Auto Split)</span>
+                      </label>
+                      <input
+                        type="checkbox"
+                        checked={settings.autoPagination !== false}
+                        onChange={(e) =>
+                          setSettings((s) => ({ ...s, autoPagination: e.target.checked }))
+                        }
+                        className="rounded accent-blue-600 w-4 h-4 cursor-pointer"
+                      />
+                    </div>
+                    <p className="text-[11px] opacity-75 leading-relaxed">
+                      چنانچه ابعاد یا تعداد گره‌ها از حد استاندارد فراتر رود، جهت حفظ خوانایی در چاپ خودکار صفحه به چند صفحه تفکیک شده، آخرین گره به شکل <strong>«ادامه ⬇»</strong> متصل و در صفحه بعد با <strong>«ادامه ⬆»</strong> آغاز می‌گردد.
+                    </p>
+
+                    {settings.autoPagination !== false && (
+                      <div className="pt-2 border-t border-blue-200/50 dark:border-blue-800/50 space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold opacity-80">حداکثر گره در هر صفحه استاندارد:</span>
+                          <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                            {settings.maxNodesPerPage || 7} گره
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {[5, 6, 7, 8, 10, 12].map((num) => (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => setSettings((s) => ({ ...s, maxNodesPerPage: num }))}
+                              className={`flex-1 py-1 rounded-lg text-center font-mono text-[10.5px] border transition-all cursor-pointer ${
+                                (settings.maxNodesPerPage || 7) === num
+                                  ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                                  : 'bg-white/80 dark:bg-slate-800/80 hover:border-blue-400 opacity-80'
+                              }`}
+                            >
+                              {num}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Diagram Scale */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -1856,7 +1885,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                       </div>
                     )}
 
-                    {/* ================= SHEET BODY (50% SHAPES / 50% NOTES SPLIT) ================= */}
+                    {/* ================= SHEET BODY (50% LEFT/RIGHT OR FIT TEXT TOP/BOTTOM) ================= */}
                     {(() => {
                       const splitPos = settings.splitPosition || 'shapes-top';
                       const isHorizontal = splitPos === 'shapes-right' || splitPos === 'shapes-left';
@@ -1870,17 +1899,21 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                           ? 'flex-row-reverse'
                           : 'flex-row';
 
-                      const halfStyle = isHorizontal
+                      const diagramContainerStyle = isHorizontal
                         ? { width: 'calc(50% - 6px)', height: '100%', maxHeight: '100%' }
-                        : { height: 'calc(50% - 6px)', maxHeight: 'calc(50% - 6px)', width: '100%' };
+                        : { width: '100%', flex: '1 1 auto', minHeight: 0, height: '100%' };
+
+                      const notesContainerStyle = isHorizontal
+                        ? { width: 'calc(50% - 6px)', height: '100%', maxHeight: '100%' }
+                        : { width: '100%', flex: '0 0 auto', maxHeight: '42%' };
 
                       return (
                         <div
                           className={`flex-1 flex ${containerFlexClass} gap-3 min-h-0 overflow-hidden relative z-10 w-full`}
                         >
-                          {/* 50% DIAGRAM SVG CONTAINER */}
+                          {/* DIAGRAM SVG CONTAINER (Full remaining space in vertical, 50% in horizontal) */}
                           <div
-                            style={halfStyle}
+                            style={diagramContainerStyle}
                             className={`flex items-center justify-center overflow-hidden rounded-lg p-2 relative shrink-0 ${getDiagramBorderClass()} ${getDiagramBgClass()}`}
                           >
                             <div
@@ -1892,9 +1925,9 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                             />
                           </div>
 
-                          {/* 50% NOTES & CONSIDERATIONS CARD */}
+                          {/* NOTES & CONSIDERATIONS CARD (Fits text in vertical, 50% in horizontal) */}
                           <div
-                            style={halfStyle}
+                            style={notesContainerStyle}
                             className="flex flex-col justify-between rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 overflow-hidden relative shadow-xs shrink-0"
                           >
                             <div
@@ -1915,7 +1948,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                                 </span>
                               </div>
                               <span className="text-[9px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                                [بخش ۵۰٪]
+                                {isHorizontal ? '[بخش ۵۰٪ چپ/راست]' : '[متناسب با متن]'}
                               </span>
                             </div>
 

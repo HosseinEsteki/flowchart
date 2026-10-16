@@ -163,6 +163,8 @@ export interface PrintSettings {
   accentColor?: string;
   includeCoverPage?: boolean;
   coverSummary?: string;
+  autoPagination?: boolean;
+  maxNodesPerPage?: number;
 }
 
 export interface FlowchartProject {

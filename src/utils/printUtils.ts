@@ -44,6 +44,8 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   accentColor: '#2563EB',
   includeCoverPage: false,
   coverSummary: '',
+  autoPagination: true,
+  maxNodesPerPage: 7,
 };
 
 // Convert hex/named color to RGB
@@ -363,15 +365,261 @@ export function getMarginMm(marginSize: PrintSettings['marginSize']): number {
   }
 }
 
-// Generate complete standalone HTML report optimized for printing
-export function generatePrintReportHtml(
+/**
+ * Topologically sorts flowchart nodes based on edges/flow direction,
+ * starting with terminal/start nodes or root nodes (in-degree 0),
+ * falling back to vertical (Y) and horizontal (X) coordinates.
+ */
+export function orderNodesByFlow(
+  nodes: FlowchartNode[],
+  edges: FlowchartEdge[]
+): FlowchartNode[] {
+  if (nodes.length <= 1) return [...nodes];
+
+  const nodeMap = new Map<string, FlowchartNode>();
+  nodes.forEach((n) => nodeMap.set(n.id, n));
+
+  const inDegree = new Map<string, number>();
+  const outgoing = new Map<string, string[]>();
+  nodes.forEach((n) => {
+    inDegree.set(n.id, 0);
+    outgoing.set(n.id, []);
+  });
+
+  edges.forEach((e) => {
+    if (nodeMap.has(e.sourceNodeId) && nodeMap.has(e.targetNodeId)) {
+      inDegree.set(e.targetNodeId, (inDegree.get(e.targetNodeId) || 0) + 1);
+      outgoing.get(e.sourceNodeId)?.push(e.targetNodeId);
+    }
+  });
+
+  // Start nodes: in-degree 0, prioritized by terminal type / 'start' / 'شروع' label, then Y, then X
+  let startNodes = nodes
+    .filter((n) => (inDegree.get(n.id) || 0) === 0)
+    .sort((a, b) => {
+      const aStart = a.type === 'terminal' || /شروع|start|ورود|begin/i.test(a.label);
+      const bStart = b.type === 'terminal' || /شروع|start|ورود|begin/i.test(b.label);
+      if (aStart && !bStart) return -1;
+      if (!aStart && bStart) return 1;
+      if (Math.abs(a.y - b.y) > 30) return a.y - b.y;
+      return a.x - b.x;
+    });
+
+  // If no in-degree 0 node found (e.g. loops or isolated cycles), start with top-most node
+  if (startNodes.length === 0) {
+    const sortedByY = [...nodes].sort((a, b) => a.y - b.y || a.x - b.x);
+    startNodes = [sortedByY[0]];
+  }
+
+  const ordered: FlowchartNode[] = [];
+  const visited = new Set<string>();
+  const queue: FlowchartNode[] = [...startNodes];
+  startNodes.forEach((n) => visited.add(n.id));
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    ordered.push(current);
+
+    const neighbors = outgoing.get(current.id) || [];
+    const neighborNodes = neighbors
+      .map((id) => nodeMap.get(id)!)
+      .filter(Boolean)
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+
+    for (const neighbor of neighborNodes) {
+      const remainingDegree = (inDegree.get(neighbor.id) || 1) - 1;
+      inDegree.set(neighbor.id, remainingDegree);
+      if (remainingDegree <= 0 && !visited.has(neighbor.id)) {
+        visited.add(neighbor.id);
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  // Append any disconnected nodes or cycle nodes not yet visited, sorted by Y then X
+  const unvisited = nodes
+    .filter((n) => !visited.has(n.id))
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+
+  ordered.push(...unvisited);
+  return ordered;
+}
+
+/**
+ * Paginates a single flowchart page into multiple sub-pages if it exceeds
+ * standard legible size (e.g. > maxNodesPerPage or large dimensions),
+ * automatically connecting the last node on page N to an "ادامه" shape,
+ * and placing "ادامه" as the first shape on page N+1 connected to the next node.
+ */
+export function paginatePageForPrint(
+  page: FlowchartPage,
+  settings: PrintSettings
+): FlowchartPage[] {
+  if (settings.autoPagination === false) {
+    return [page];
+  }
+
+  const nodes = page.nodes || [];
+  if (nodes.length <= 5) {
+    return [page];
+  }
+
+  // Max nodes per standard legible page (default 7, customizable via settings.maxNodesPerPage)
+  const maxNodes =
+    settings.maxNodesPerPage && settings.maxNodesPerPage >= 3
+      ? settings.maxNodesPerPage
+      : 7;
+
+  const bbox = getNodeBoundingBox(nodes, 40);
+  const exceedsCount = nodes.length > maxNodes;
+  const exceedsDimension = bbox.height > 850 || bbox.width > 1350;
+
+  if (!exceedsCount && !exceedsDimension) {
+    return [page];
+  }
+
+  const orderedNodes = orderNodesByFlow(nodes, page.edges || []);
+  const numChunks = Math.ceil(orderedNodes.length / maxNodes);
+
+  if (numChunks <= 1) {
+    return [page];
+  }
+
+  const subPages: FlowchartPage[] = [];
+  const accentColor = settings.accentColor || '#2563EB';
+
+  for (let chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
+    const chunkNodes = orderedNodes.slice(
+      chunkIdx * maxNodes,
+      (chunkIdx + 1) * maxNodes
+    );
+    const chunkNodeIds = new Set(chunkNodes.map((n) => n.id));
+
+    // Internal edges strictly within this chunk
+    const subEdges: FlowchartEdge[] = (page.edges || []).filter(
+      (e) => chunkNodeIds.has(e.sourceNodeId) && chunkNodeIds.has(e.targetNodeId)
+    );
+
+    const subNodes: FlowchartNode[] = [...chunkNodes];
+
+    // Outgoing continuation connector: If not the last chunk, connect last node to "ادامه"
+    if (chunkIdx < numChunks - 1) {
+      const crossEdge = (page.edges || []).find(
+        (e) => chunkNodeIds.has(e.sourceNodeId) && !chunkNodeIds.has(e.targetNodeId)
+      );
+      const exitNode = crossEdge
+        ? chunkNodes.find((n) => n.id === crossEdge.sourceNodeId) || chunkNodes[chunkNodes.length - 1]
+        : chunkNodes[chunkNodes.length - 1];
+
+      const continueOutId = `continue_out_${page.id}_${chunkIdx + 1}`;
+      const continueOutNode: FlowchartNode = {
+        id: continueOutId,
+        type: 'terminal',
+        x: exitNode.x + Math.max(0, (exitNode.width - 130) / 2),
+        y: exitNode.y + exitNode.height + 45,
+        width: 130,
+        height: 38,
+        label: `ادامه ⬇`,
+        fill: '#EFF6FF',
+        stroke: accentColor,
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        textColor: accentColor,
+        fontSize: 12,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        borderRadius: 19,
+      };
+
+      subNodes.push(continueOutNode);
+
+      const continueOutEdge: FlowchartEdge = {
+        id: `edge_${continueOutId}`,
+        sourceNodeId: exitNode.id,
+        sourcePort: 'bottom',
+        targetNodeId: continueOutId,
+        targetPort: 'top',
+        lineType: 'orthogonal',
+        color: accentColor,
+        strokeWidth: 2,
+        style: 'solid',
+        arrowEnd: true,
+        label: 'ادامه',
+      };
+
+      subEdges.push(continueOutEdge);
+    }
+
+    // Incoming continuation connector: If not the first chunk, put "ادامه" as first shape
+    if (chunkIdx > 0) {
+      const crossEdge = (page.edges || []).find(
+        (e) => !chunkNodeIds.has(e.sourceNodeId) && chunkNodeIds.has(e.targetNodeId)
+      );
+      const entryNode = crossEdge
+        ? chunkNodes.find((n) => n.id === crossEdge.targetNodeId) || chunkNodes[0]
+        : chunkNodes[0];
+
+      const continueInId = `continue_in_${page.id}_${chunkIdx + 1}`;
+      const continueInNode: FlowchartNode = {
+        id: continueInId,
+        type: 'terminal',
+        x: entryNode.x + Math.max(0, (entryNode.width - 130) / 2),
+        y: entryNode.y - 55,
+        width: 130,
+        height: 38,
+        label: `ادامه ⬆`,
+        fill: '#EFF6FF',
+        stroke: accentColor,
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        textColor: accentColor,
+        fontSize: 12,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        borderRadius: 19,
+      };
+
+      subNodes.unshift(continueInNode);
+
+      const continueInEdge: FlowchartEdge = {
+        id: `edge_${continueInId}`,
+        sourceNodeId: continueInId,
+        sourcePort: 'bottom',
+        targetNodeId: entryNode.id,
+        targetPort: 'top',
+        lineType: 'orthogonal',
+        color: accentColor,
+        strokeWidth: 2,
+        style: 'solid',
+        arrowEnd: true,
+      };
+
+      subEdges.unshift(continueInEdge);
+    }
+
+    subPages.push({
+      id: `${page.id}_part_${chunkIdx + 1}`,
+      name: `${page.name} (بخش ${chunkIdx + 1} از ${numChunks})`,
+      description: chunkIdx === 0 ? page.description : `ادامه مستندات فرآیند: ${page.name}`,
+      notes: chunkIdx === 0 ? page.notes : '',
+      imageUrl: chunkIdx === 0 ? page.imageUrl : '',
+      nodes: subNodes,
+      edges: subEdges,
+    });
+  }
+
+  return subPages;
+}
+
+/**
+ * Paginates all selected pages of a project for printing,
+ * splitting oversized pages and injecting "ادامه" connectors.
+ */
+export function paginateProjectPages(
   project: FlowchartProject,
   settings: PrintSettings
-): string {
-  const customFontName = settings.customFontName?.trim();
-  const fontFamilyCss = getFontFamilyCss(settings.fontFamily, customFontName);
-  const marginMm = getMarginMm(settings.marginSize);
-  const pages =
+): FlowchartPage[] {
+  const rawPages =
     settings.targetPages === 'current'
       ? (project.pages || []).filter((p) => p.id === project.activePageId)
       : project.pages && project.pages.length > 0
@@ -380,12 +628,30 @@ export function generatePrintReportHtml(
           {
             id: 'p1',
             name: 'صفحه اصلی',
-            description: '',
-            notes: '',
-            nodes: project.nodes,
-            edges: project.edges,
+            description: project.description || '',
+            notes: project.notes || '',
+            nodes: project.nodes || [],
+            edges: project.edges || [],
           },
         ];
+
+  const result: FlowchartPage[] = [];
+  rawPages.forEach((p) => {
+    const paginated = paginatePageForPrint(p, settings);
+    result.push(...paginated);
+  });
+  return result;
+}
+
+// Generate complete standalone HTML report optimized for printing
+export function generatePrintReportHtml(
+  project: FlowchartProject,
+  settings: PrintSettings
+): string {
+  const customFontName = settings.customFontName?.trim();
+  const fontFamilyCss = getFontFamilyCss(settings.fontFamily, customFontName);
+  const marginMm = getMarginMm(settings.marginSize);
+  const pages = paginateProjectPages(project, settings);
 
   const now = new Date();
   const dateFa = now.toLocaleDateString('fa-IR', {
@@ -892,32 +1158,30 @@ export function generatePrintReportHtml(
       flex-direction: column;
     }
     .sheet-body.split-shapes-top .diagram-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 1 1 auto;
+      min-height: 0;
       width: 100%;
+      height: 100%;
     }
     .sheet-body.split-shapes-top .notes-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 0 0 auto;
       width: 100%;
+      max-height: 42%;
     }
 
     .sheet-body.split-shapes-bottom {
       flex-direction: column-reverse;
     }
     .sheet-body.split-shapes-bottom .diagram-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 1 1 auto;
+      min-height: 0;
       width: 100%;
+      height: 100%;
     }
     .sheet-body.split-shapes-bottom .notes-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 0 0 auto;
       width: 100%;
+      max-height: 42%;
     }
 
     .sheet-body.split-shapes-right {
@@ -1428,29 +1692,47 @@ function render5050PagePdf(
   let notesW: number;
   let notesH: number;
 
-  if (splitPos === 'shapes-top') {
-    const halfH = (availHeight - gap) / 2;
-    diagramX = margin;
-    diagramY = currentY;
-    diagramW = availWidth;
-    diagramH = halfH;
+  if (splitPos === 'shapes-top' || splitPos === 'shapes-bottom') {
+    // Top/Bottom: Notes takes only the height needed by text, and Shapes gets all remaining space!
+    const hasDesc = Boolean(page.description && page.description.trim());
+    const hasPageNotes = Boolean(settings.showNotes !== false && page.notes && page.notes.trim());
+    const hasImg = Boolean(page.imageUrl && settings.showPageImage !== false);
 
-    notesX = margin;
-    notesY = currentY + halfH + gap;
-    notesW = availWidth;
-    notesH = halfH;
-  } else if (splitPos === 'shapes-bottom') {
-    const halfH = (availHeight - gap) / 2;
-    notesX = margin;
-    notesY = currentY;
-    notesW = availWidth;
-    notesH = halfH;
+    let estimatedNotesH = 12; // header bar
+    if (hasDesc) {
+      const charCount = (page.description || '').length;
+      estimatedNotesH += Math.min(24, 6 + Math.ceil(charCount / 60) * 3.5);
+    }
+    if (hasPageNotes) {
+      const charCount = (page.notes || '').length;
+      estimatedNotesH += Math.min(24, 6 + Math.ceil(charCount / 60) * 3.5);
+    }
+    if (hasImg) estimatedNotesH += 24;
+    if (!hasDesc && !hasPageNotes) estimatedNotesH += 15; // compact manual notes lines
 
-    diagramX = margin;
-    diagramY = currentY + halfH + gap;
-    diagramW = availWidth;
-    diagramH = halfH;
+    // Cap notes height to at most 38% of available height, min 20mm
+    notesH = Math.min(availHeight * 0.38, Math.max(20, estimatedNotesH));
+    diagramH = availHeight - notesH - gap;
+
+    if (splitPos === 'shapes-top') {
+      diagramX = margin;
+      diagramY = currentY;
+      diagramW = availWidth;
+
+      notesX = margin;
+      notesY = currentY + diagramH + gap;
+      notesW = availWidth;
+    } else {
+      notesX = margin;
+      notesY = currentY;
+      notesW = availWidth;
+
+      diagramX = margin;
+      diagramY = currentY + notesH + gap;
+      diagramW = availWidth;
+    }
   } else if (splitPos === 'shapes-right') {
+    // 50% horizontal split (shapes on right, notes on left)
     const halfW = (availWidth - gap) / 2;
     notesX = margin;
     notesY = currentY;
@@ -1462,7 +1744,7 @@ function render5050PagePdf(
     diagramW = halfW;
     diagramH = availHeight;
   } else {
-    // shapes-left
+    // shapes-left: 50% horizontal split (shapes on left, notes on right)
     const halfW = (availWidth - gap) / 2;
     diagramX = margin;
     diagramY = currentY;
@@ -1590,21 +1872,7 @@ export async function exportMultiPagePdf(
   project: FlowchartProject,
   settings: PrintSettings
 ): Promise<void> {
-  const pages =
-    settings.targetPages === 'current'
-      ? (project.pages || []).filter((p) => p.id === project.activePageId)
-      : project.pages && project.pages.length > 0
-      ? project.pages
-      : [
-          {
-            id: 'p1',
-            name: 'صفحه اصلی',
-            description: '',
-            notes: '',
-            nodes: project.nodes,
-            edges: project.edges,
-          },
-        ];
+  const pages = paginateProjectPages(project, settings);
 
   const orientation = settings.orientation === 'landscape' ? 'landscape' : 'portrait';
   const format = settings.paperSize === 'a3' ? 'a3' : settings.paperSize === 'letter' ? 'letter' : 'a4';
@@ -1793,7 +2061,12 @@ export function generateAggregatePrintReportHtml(
       ? rawPages.filter((p) => includedPageIds.includes(p.id))
       : rawPages;
 
-    effectivePages.forEach((page, pgIdx) => {
+    const paginatedPages: FlowchartPage[] = [];
+    effectivePages.forEach((p) => {
+      paginatedPages.push(...paginatePageForPrint(p, settings));
+    });
+
+    paginatedPages.forEach((page, pgIdx) => {
       projectPageEntries.push({
         project: proj,
         page,
@@ -2362,32 +2635,30 @@ export function generateAggregatePrintReportHtml(
       flex-direction: column;
     }
     .sheet-body.split-shapes-top .diagram-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 1 1 auto;
+      min-height: 0;
       width: 100%;
+      height: 100%;
     }
     .sheet-body.split-shapes-top .notes-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 0 0 auto;
       width: 100%;
+      max-height: 42%;
     }
 
     .sheet-body.split-shapes-bottom {
       flex-direction: column-reverse;
     }
     .sheet-body.split-shapes-bottom .diagram-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 1 1 auto;
+      min-height: 0;
       width: 100%;
+      height: 100%;
     }
     .sheet-body.split-shapes-bottom .notes-half {
-      flex: 1 1 50%;
-      height: calc(50% - 7px);
-      max-height: calc(50% - 7px);
+      flex: 0 0 auto;
       width: 100%;
+      max-height: 42%;
     }
 
     .sheet-body.split-shapes-right {
@@ -2820,8 +3091,13 @@ export async function exportAggregateMultiPagePdf(
       ? rawPages.filter((p) => includedPageIds.includes(p.id))
       : rawPages;
 
-    for (let pgIdx = 0; pgIdx < effectivePages.length; pgIdx++) {
-      const page = effectivePages[pgIdx];
+    const paginatedPages: FlowchartPage[] = [];
+    effectivePages.forEach((p) => {
+      paginatedPages.push(...paginatePageForPrint(p, settings));
+    });
+
+    for (let pgIdx = 0; pgIdx < paginatedPages.length; pgIdx++) {
+      const page = paginatedPages[pgIdx];
       if (totalPagesRendered > 0) {
         pdf.addPage(format, orientation);
       }
